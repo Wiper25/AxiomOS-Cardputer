@@ -12,7 +12,7 @@ if (-not (Test-Path "dist/AxiomOS-Cardputer-ADV-v$Version-merged.bin")) {
   python scripts/merge_firmware.py --version $Version
 }
 
-git remote set-url origin git@github-wiper25:Wiper25/AxiomOS-Cardputer.git
+git remote set-url origin git@github.com:Wiper25/AxiomOS-Cardputer.git
 git push -u origin main
 
 if (-not (git rev-parse -q --verify "refs/tags/v$Version")) {
