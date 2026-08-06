@@ -1,0 +1,30 @@
+# PlatformIO
+.pio/
+.vscode/.browse.c_cpp.db*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch
+*.pyc
+__pycache__/
+
+# Local / alternate build dirs
+C:/pio_build/
+/pio_build/
+build/
+dist/*.bin
+!dist/.gitkeep
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+*.user
+
+# Secrets
+.env
+.env.*
+credentials.json
+*.pem
+*.key
