@@ -1,0 +1,19 @@
+# Normalize line endings / force text for docs (avoids binary README on GitHub)
+* text=auto eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.c text eol=lf
+*.cpp text eol=lf
+*.ini text eol=lf
+*.ps1 text eol=crlf
+
+# Binaries
+*.bin binary
+*.elf binary
+*.png binary
+*.jpg binary
+*.gif binary
