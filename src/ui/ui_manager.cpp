@@ -1462,8 +1462,11 @@ void UiManager::HandleBleScannerInput(const UiInputEvent& event) {
       break;
     case drivers::InputAction::Select:
     case drivers::InputAction::Rescan:
-      bt_->StartScan();
+      bt_->StartScan(true);  // wipe + restart continuous scan
       last_ble_scanning_ = true;
+      last_ble_count_ = 0;
+      ble_selected_ = 0;
+      ble_scroll_ = 0;
       if (audio_) audio_->Play(drivers::SoundId::MenuOpen);
       RefreshBleScannerList(false);
       break;

@@ -23,7 +23,8 @@ class BluetoothModule {
 
   bool Begin();
   void Tick();
-  bool StartScan();
+  // clear=true: wipe list and restart; false: keep devices, (re)start if idle
+  bool StartScan(bool clear = false);
   void SetScannerActive(bool active);
   bool IsScanning() const { return telemetry_.scanning; }
   uint8_t DeviceCount() const { return device_count_; }
@@ -37,6 +38,7 @@ class BluetoothModule {
  private:
   bool EnsureStack();
   void TearDownStack();
+  void ClearDevices();
   void SortByRssi();
   void UpdateTelemetry();
 
@@ -46,7 +48,7 @@ class BluetoothModule {
   bool scanner_active_ = false;
   bool stack_ready_ = false;
   bool scan_start_pending_ = false;
-  uint32_t last_scan_start_ms_ = 0;
+  bool pending_clear_ = false;
 };
 
 }  // namespace axiom::modules

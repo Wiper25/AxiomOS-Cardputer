@@ -7,7 +7,6 @@
 namespace axiom::modules {
 namespace {
 
-constexpr uint32_t kScanDurationSec = 4;
 constexpr uint16_t kScanInterval = 100;  // units of 0.625ms
 constexpr uint16_t kScanWindow = 99;
 
@@ -45,6 +44,7 @@ bool BluetoothModule::Begin() {
   scanner_active_ = false;
   stack_ready_ = false;
   scan_start_pending_ = false;
+  pending_clear_ = false;
   return true;
 }
 
@@ -82,21 +82,34 @@ void BluetoothModule::TearDownStack() {
   telemetry_.scanning = false;
 }
 
-bool BluetoothModule::StartScan() {
+void BluetoothModule::ClearDevices() {
+  device_count_ = 0;
+  telemetry_.devices_found = 0;
+  telemetry_.strongest_rssi = -127;
+}
+
+bool BluetoothModule::StartScan(bool clear) {
   if (!scanner_active_) return false;
   if (!EnsureStack()) return false;
 
   NimBLEScan* scan = NimBLEDevice::getScan();
   if (scan == nullptr) return false;
-  if (scan->isScanning()) return true;
 
-  device_count_ = 0;
-  telemetry_.devices_found = 0;
-  telemetry_.strongest_rssi = -127;
+  if (scan->isScanning()) {
+    if (!clear) return true;
+    // Manual refresh: stop, wipe, restart via Tick
+    pending_clear_ = true;
+    scan_start_pending_ = true;
+    scan->stop();
+    return true;
+  }
+
+  if (clear) ClearDevices();
+
   telemetry_.scanning = true;
-  last_scan_start_ms_ = millis();
 
-  const bool ok = scan->start(kScanDurationSec, OnScanDone, false);
+  // duration 0 = continuous until stop — list accumulates, no wipe loop
+  const bool ok = scan->start(0, OnScanDone, false);
   if (!ok) {
     telemetry_.scanning = false;
     return false;
@@ -107,11 +120,14 @@ bool BluetoothModule::StartScan() {
 void BluetoothModule::SetScannerActive(bool active) {
   scanner_active_ = active;
   if (active) {
+    ClearDevices();
+    pending_clear_ = false;
     scan_start_pending_ = true;
     return;
   }
 
   scan_start_pending_ = false;
+  pending_clear_ = false;
   if (stack_ready_) {
     NimBLEScan* scan = NimBLEDevice::getScan();
     if (scan != nullptr && scan->isScanning()) {
@@ -119,6 +135,7 @@ void BluetoothModule::SetScannerActive(bool active) {
     }
   }
   telemetry_.scanning = false;
+  ClearDevices();
   TearDownStack();
 }
 
@@ -127,12 +144,15 @@ void BluetoothModule::OnAdvertisement(const char* addr, const char* name, int8_t
 
   for (uint8_t i = 0; i < device_count_; ++i) {
     if (strcasecmp(devices_[i].addr, addr) == 0) {
+      const bool name_changed =
+          name && name[0] && strcmp(devices_[i].name, name) != 0;
+      const bool rssi_changed = devices_[i].rssi != rssi;
       devices_[i].rssi = rssi;
-      if (name && name[0]) {
+      if (name_changed) {
         strncpy(devices_[i].name, name, sizeof(devices_[i].name) - 1);
         devices_[i].name[sizeof(devices_[i].name) - 1] = 0;
       }
-      SortByRssi();
+      if (rssi_changed) SortByRssi();
       UpdateTelemetry();
       return;
     }
@@ -171,19 +191,18 @@ void BluetoothModule::OnAdvertisement(const char* addr, const char* name, int8_t
 void BluetoothModule::OnScanComplete() {
   telemetry_.scanning = false;
   UpdateTelemetry();
+  // Only restart if UI still wants the scanner (manual refresh stop, or unexpected end)
   if (scanner_active_) {
     scan_start_pending_ = true;
   }
 }
 
 void BluetoothModule::Tick() {
-  if (scan_start_pending_ && scanner_active_) {
-    if (millis() - last_scan_start_ms_ < 400 && last_scan_start_ms_ != 0 && device_count_ > 0) {
-      return;
-    }
-    scan_start_pending_ = false;
-    StartScan();
-  }
+  if (!scan_start_pending_ || !scanner_active_) return;
+  scan_start_pending_ = false;
+  const bool clear = pending_clear_;
+  pending_clear_ = false;
+  StartScan(clear);
 }
 
 void BluetoothModule::SortByRssi() {
