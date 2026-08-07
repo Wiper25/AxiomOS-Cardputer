@@ -5,6 +5,14 @@ All notable changes to **AxiomOS Cardputer Edition** are documented here.
 Format based on [Keep a Changelog](https://keepachangelog.com/).
 Versioning follows [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **AxiomOS AI** layer (`src/modules/ai/`): Chat, Agents, Knowledge, Memory, History, Settings
+- AI Dashboard + Device Doctor + action confirm gate
+- Local knowledge base (ESP32 / nRF / WiFi / MQTT / …) with server fallback (REST / WebSocket streaming)
+- FreeRTOS `axiom_ai` task; AI disabled via Settings leaves original firmware behavior
+
 ## [0.1.0] — 2026-08-06
 
 First public release.

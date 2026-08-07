@@ -20,6 +20,13 @@
 #include "services/settings/settings_service.h"
 #include "services/storage/storage_service.h"
 
+#if AXIOM_AI
+namespace axiom::ai {
+class AIManager;
+class AIUI;
+}
+#endif
+
 namespace axiom::ui {
 
 struct SystemStatus {
@@ -61,6 +68,7 @@ class UiManager {
   bool Begin(drivers::DisplayDriver& display);
   void SetAudioDriver(drivers::AudioDriver* audio) { audio_ = audio; }
   void SetWifiModule(modules::WifiModule* wifi) { wifi_ = wifi; }
+  void SetBluetoothModule(modules::BluetoothModule* bt) { bt_ = bt; }
   void SetMqttModule(modules::MqttModule* mqtt) { mqtt_ = mqtt; }
   void SetWebsocketModule(modules::WebsocketModule* ws) { websocket_ = ws; }
   void SetHttpModule(modules::HttpModule* http) { http_ = http; }
@@ -72,6 +80,10 @@ class UiManager {
   void SetStorage(services::StorageService* storage) { storage_ = storage; }
   void SetNrfModule(modules::Nrf24Module* nrf) { nrf_ = nrf; }
   void SetKeyboard(drivers::KeyboardDriver* kb) { keyboard_ = kb; }
+#if AXIOM_AI
+  void SetAI(ai::AIManager* mgr, ai::AIUI* ui);
+  void SyncAiHost();
+#endif
   void SetNrfTelemetry(const modules::NrfTelemetry& telemetry);
   void SetSystemStatus(const SystemStatus& status);
   void SetSettingsSnapshot(const services::AppSettings& s) { settings_ = s; }
@@ -88,6 +100,7 @@ class UiManager {
   void RefreshStatusBar();
   void RefreshWifiScannerList(bool animate_in);
   void RefreshWifiPasswordScreen();
+  void RefreshBleScannerList(bool animate_in);
   void RefreshMqttScreen(bool animate_in);
   void RefreshNetToolScreen(bool animate_in);
   void RefreshHwToolScreen(bool animate_in);
@@ -98,6 +111,7 @@ class UiManager {
   void HandleSettingsInput(drivers::InputAction action);
   void HandleWifiScannerInput(const UiInputEvent& event);
   void HandleWifiPasswordInput(const UiInputEvent& event);
+  void HandleBleScannerInput(const UiInputEvent& event);
   void HandleMqttInput(const UiInputEvent& event);
   void HandleNetToolInput(const UiInputEvent& event);
   void HandleHwToolInput(const UiInputEvent& event);
@@ -110,6 +124,8 @@ class UiManager {
   void OpenWifiPassword();
   void CloseWifiPassword(bool back_to_list);
   void BeginWifiConnect();
+  void OpenBleScanner();
+  void CloseBleScanner();
   void OpenMqttClient();
   void CloseMqttClient();
   void BeginMqttEdit();
@@ -183,6 +199,7 @@ class UiManager {
   drivers::AudioDriver* audio_ = nullptr;
   drivers::KeyboardDriver* keyboard_ = nullptr;
   modules::WifiModule* wifi_ = nullptr;
+  modules::BluetoothModule* bt_ = nullptr;
   modules::MqttModule* mqtt_ = nullptr;
   modules::WebsocketModule* websocket_ = nullptr;
   modules::HttpModule* http_ = nullptr;
@@ -212,6 +229,11 @@ class UiManager {
   bool wifi_target_encrypted_ = false;
   char wifi_password_[65] = {0};
   uint8_t wifi_password_len_ = 0;
+  bool in_ble_scanner_ = false;
+  int ble_selected_ = 0;
+  int ble_scroll_ = 0;
+  uint8_t last_ble_count_ = 0;
+  bool last_ble_scanning_ = false;
   bool in_mqtt_screen_ = false;
   bool mqtt_edit_mode_ = false;
   int mqtt_selected_ = 0;
@@ -258,6 +280,11 @@ class UiManager {
   int fs_scroll_ = 0;
   bool in_about_screen_ = false;
   int about_selected_ = 0;
+#if AXIOM_AI
+  ai::AIManager* ai_mgr_ = nullptr;
+  ai::AIUI* ai_ui_ = nullptr;
+  bool ai_host_ready_ = false;
+#endif
 };
 
 }  // namespace axiom::ui

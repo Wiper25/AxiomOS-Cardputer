@@ -27,6 +27,8 @@ struct WifiTelemetry {
   int32_t strongest_rssi = -127;
   int32_t link_rssi = -127;
   char connected_ssid[33] = {0};
+  bool has_saved = false;
+  bool auto_connect = true;
 };
 
 class WifiModule {
@@ -39,6 +41,10 @@ class WifiModule {
   void SetScannerActive(bool active);
   bool Connect(const char* ssid, const char* password);
   void Disconnect();
+  void ForgetSaved();  // wipe NVS creds
+  bool HasSaved() const { return saved_ssid_[0] != '\0'; }
+  const char* SavedSsid() const { return saved_ssid_; }
+  bool ConnectSaved();  // reconnect using NVS creds
   bool IsScanning() const { return telemetry_.scanning; }
   WifiConnectState ConnectState() const { return telemetry_.connect_state; }
   uint8_t NetworkCount() const { return network_count_; }
@@ -47,6 +53,9 @@ class WifiModule {
 
  private:
   void CollectResults(int16_t count);
+  bool LoadCredentials();
+  bool SaveCredentials(const char* ssid, const char* password);
+  void TryAutoConnect();
 
   WifiTelemetry telemetry_;
   WifiNetwork networks_[kMaxNetworks];
@@ -54,6 +63,13 @@ class WifiModule {
   uint32_t last_auto_scan_ms_ = 0;
   uint32_t connect_started_ms_ = 0;
   bool scanner_active_ = false;
+
+  char saved_ssid_[33] = {0};
+  char saved_pass_[65] = {0};
+  char pending_ssid_[33] = {0};
+  char pending_pass_[65] = {0};
+  bool pending_save_ = false;
+  bool auto_connect_ = true;
 };
 
 }  // namespace axiom::modules

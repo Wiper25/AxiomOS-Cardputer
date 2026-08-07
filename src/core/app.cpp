@@ -30,6 +30,7 @@ bool App::Begin() {
   }
   ui_manager_.SetAudioDriver(&audio_);
   ui_manager_.SetWifiModule(&wifi_);
+  ui_manager_.SetBluetoothModule(&bt_);
   ui_manager_.SetMqttModule(&mqtt_);
   ui_manager_.SetWebsocketModule(&websocket_);
   ui_manager_.SetHttpModule(&http_);
@@ -56,6 +57,25 @@ bool App::Begin() {
   sensors_.Begin();
   bt_.Begin();
   storage_.Begin();
+
+#if AXIOM_AI
+  ai::AiDeps ai_deps;
+  ai_deps.wifi = &wifi_;
+  ai_deps.nrf = &nrf24_;
+  ai_deps.mqtt = &mqtt_;
+  ai_deps.sensors = &sensors_;
+  ai_deps.bt = &bt_;
+  ai_deps.storage = &storage_;
+  ai_deps.open_settings = nullptr;
+  ai_deps.show_logs = nullptr;
+  if (!ai_manager_.Begin(ai_deps)) {
+    // Non-fatal: continue without AI task if queue alloc fails
+  } else {
+    ai_ui_.Bind(&ai_manager_);
+    ui_manager_.SetAI(&ai_manager_, &ai_ui_);
+  }
+#endif
+
   ui::SystemStatus boot_status;
   boot_status.nrf = nrf24_.GetTelemetry();
   boot_status.wifi = wifi_.GetTelemetry();
@@ -73,7 +93,15 @@ bool App::Begin() {
       ServicesTaskEntry, "axiom_services", kServicesTaskStackWords, this,
       kServicesTaskPriority, &services_task_handle_, 0);
 
+#if AXIOM_AI
+  const BaseType_t ai_result = xTaskCreatePinnedToCore(
+      AiTaskEntry, "axiom_ai", kAiTaskStackWords, this, kAiTaskPriority,
+      &ai_task_handle_, 0);
+  return result == pdPASS && nrf_result == pdPASS && svc_result == pdPASS &&
+         ai_result == pdPASS;
+#else
   return result == pdPASS && nrf_result == pdPASS && svc_result == pdPASS;
+#endif
 }
 
 void App::Loop() {
@@ -113,6 +141,20 @@ void App::ServicesTaskEntry(void* arg) {
   auto* self = static_cast<App*>(arg);
   self->ServicesTask();
 }
+
+#if AXIOM_AI
+void App::AiTaskEntry(void* arg) {
+  auto* self = static_cast<App*>(arg);
+  self->AiTask();
+}
+
+void App::AiTask() {
+  for (;;) {
+    ai_manager_.Tick();
+    vTaskDelay(pdMS_TO_TICKS(kAiTaskPeriodMs));
+  }
+}
+#endif
 
 void App::UiTask() {
   for (;;) {

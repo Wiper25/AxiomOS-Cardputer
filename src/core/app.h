@@ -21,6 +21,11 @@
 #include "services/storage/storage_service.h"
 #include "ui/ui_manager.h"
 
+#if AXIOM_AI
+#include "modules/ai/AIManager.h"
+#include "modules/ai/AIUI.h"
+#endif
+
 namespace axiom {
 
 class App {
@@ -32,6 +37,10 @@ class App {
   static void UiTaskEntry(void* arg);
   static void NrfTaskEntry(void* arg);
   static void ServicesTaskEntry(void* arg);
+#if AXIOM_AI
+  static void AiTaskEntry(void* arg);
+  void AiTask();
+#endif
   void UiTask();
   void NrfTask();
   void ServicesTask();
@@ -54,6 +63,11 @@ class App {
   services::SettingsService settings_service_;
   services::AppSettings settings_;
   ui::UiManager ui_manager_;
+#if AXIOM_AI
+  ai::AIManager ai_manager_;
+  ai::AIUI ai_ui_;
+  TaskHandle_t ai_task_handle_ = nullptr;
+#endif
   TaskHandle_t ui_task_handle_ = nullptr;
   TaskHandle_t nrf_task_handle_ = nullptr;
   TaskHandle_t services_task_handle_ = nullptr;

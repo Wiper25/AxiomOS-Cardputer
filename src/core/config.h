@@ -2,6 +2,10 @@
 
 #include <stdint.h>
 
+#ifndef AXIOM_AI
+#define AXIOM_AI 1
+#endif
+
 namespace axiom {
 
 constexpr const char* kProjectName = "AxiomOS Cardputer Edition";
@@ -16,6 +20,12 @@ constexpr uint32_t kNrfTaskPriority = 2;
 constexpr uint32_t kServicesTaskPeriodMs = 500;
 constexpr uint32_t kServicesTaskStackWords = 6144;
 constexpr uint32_t kServicesTaskPriority = 2;
+
+#if AXIOM_AI
+constexpr uint32_t kAiTaskPeriodMs = 50;
+constexpr uint32_t kAiTaskStackWords = 16384;
+constexpr uint32_t kAiTaskPriority = 1;
+#endif
 
 constexpr int kNrfCePin = 4;
 constexpr int kNrfCsnPin = 12;

@@ -28,3 +28,4 @@ Thumbs.db
 credentials.json
 *.pem
 *.key
+src/modules/ai/ai_secrets.h

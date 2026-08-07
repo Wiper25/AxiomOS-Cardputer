@@ -38,10 +38,66 @@ bool KeyboardDriver::Poll(InputAction& action) {
     return true;
   }
 
+  // Fn + ; . , /  → arrows (Cardputer physical arrow layer)
+  if (ks.fn) {
+    for (char c : ks.word) {
+      switch (c) {
+        case ';':
+        case ':':
+          action = InputAction::Up;
+          last_event_ms_ = now;
+          return true;
+        case '.':
+        case '>':
+          action = InputAction::Down;
+          last_event_ms_ = now;
+          return true;
+        case ',':
+        case '<':
+          action = InputAction::Back;
+          last_event_ms_ = now;
+          return true;
+        case '`':
+        case '~':
+          action = InputAction::Back;
+          last_event_ms_ = now;
+          return true;
+        default:
+          break;
+      }
+    }
+    // Also match HID if word empty
+    for (uint8_t hid : ks.hid_keys) {
+      switch (hid) {
+        case 0x33:  // ;
+          action = InputAction::Up;
+          last_event_ms_ = now;
+          return true;
+        case 0x37:  // .
+          action = InputAction::Down;
+          last_event_ms_ = now;
+          return true;
+        case 0x36:  // ,
+          action = InputAction::Back;
+          last_event_ms_ = now;
+          return true;
+        default:
+          break;
+      }
+    }
+    return false;
+  }
+
   if (text_capture_) {
     for (char c : ks.word) {
       if (c == '`' || c == '~') {
         action = InputAction::Back;
+        last_event_ms_ = now;
+        return true;
+      }
+      // Opt/Ctrl + ;/. as scroll while typing (no Fn required alternative)
+      if ((ks.opt || ks.ctrl) && (c == ';' || c == ':' || c == '.' || c == '>')) {
+        action = (c == ';' || c == ':') ? InputAction::Up : InputAction::Down;
         last_event_ms_ = now;
         return true;
       }
@@ -55,7 +111,7 @@ bool KeyboardDriver::Poll(InputAction& action) {
     return false;
   }
 
-  // Cardputer "стрелки": ; вверх, . вниз
+  // Menu navigation without Fn: ; up, . down
   for (char c : ks.word) {
     switch (c) {
       case ';':

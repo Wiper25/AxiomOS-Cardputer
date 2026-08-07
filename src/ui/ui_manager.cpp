@@ -10,6 +10,11 @@
 #include "ui/fonts/font_ru_14.h"
 #include "core/config.h"
 
+#if AXIOM_AI
+#include "modules/ai/AIManager.h"
+#include "modules/ai/AIUI.h"
+#endif
+
 namespace axiom::ui {
 
 namespace {
@@ -28,17 +33,20 @@ struct MenuNode {
 };
 
 constexpr MenuNode kRootMenu = {"AxiomOS",
-                                {"Радио", "Сеть", "Железо", "Система"},
-                                4};
+                                {"Радио", "Сеть", "Железо", "Система", "AI"},
+                                5};
 
 constexpr MenuNode kSubmenus[] = {
     {"Радио", {"Сканер спектра", "Монитор пакетов", "Менеджер nRF24"}, 3},
     {"Сеть",
-     {"Сканер WiFi", "MQTT клиент", "Вебсокет", "HTTP клиент", "TCP клиент", "Пинг / DNS",
-      "Сеть / IP"},
-     7},
+     {"Сканер WiFi", "Сканер BLE", "MQTT клиент", "Вебсокет", "HTTP клиент", "TCP клиент",
+      "Пинг / DNS", "Сеть / IP"},
+     8},
     {"Железо", {"Монитор GPIO", "Сканер I2C", "Датчики"}, 3},
     {"Система", {"Настройки", "Файлы / флеш", "О системе", "Обновление"}, 4},
+    {"AI",
+     {"Dashboard", "Chat", "Agents", "Knowledge", "Memory", "History", "Settings"},
+     7},
 };
 
 constexpr int kVisibleRows = 4;
@@ -78,12 +86,46 @@ bool UiManager::Begin(drivers::DisplayDriver& display) {
   return true;
 }
 
+#if AXIOM_AI
+void UiManager::SetAI(ai::AIManager* mgr, ai::AIUI* ui) {
+  ai_mgr_ = mgr;
+  ai_ui_ = ui;
+  SyncAiHost();
+}
+
+void UiManager::SyncAiHost() {
+  if (ai_ui_ == nullptr) return;
+  // BuildMenuScreen recreates LVGL nodes — must rebind every time.
+  ai::AiUiHost host;
+  host.rows = menu_rows_;
+  host.texts = menu_texts_;
+  host.hint = hint_label_;
+  host.breadcrumb = breadcrumb_label_;
+  host.cursor = selection_cursor_;
+  host.visible_rows = 4;
+  host.row_step = kRowStep;
+  ai_ui_->SetHost(host);
+  ai_host_ready_ = (menu_rows_[0] != nullptr && hint_label_ != nullptr);
+}
+#endif
+
 void UiManager::Tick() {
   UiInputEvent event;
   while (xQueueReceive(input_queue_, &event, 0) == pdTRUE) {
     HandleInput(event);
   }
   RefreshStatusBar();
+#if AXIOM_AI
+  if (ai_ui_ && ai_ui_->Active()) {
+    SyncAiHost();
+    ai_ui_->Tick();
+    if (keyboard_) {
+      keyboard_->SetTextCapture(ai_ui_->CapturingText());
+    }
+  } else if (keyboard_ && !in_wifi_password_ && !mqtt_edit_mode_ && !net_edit_mode_) {
+    // leave text capture to other editors; don't force off if password etc.
+  }
+#endif
   if (in_wifi_scanner_ && wifi_ != nullptr && !in_wifi_password_) {
     const bool scanning = wifi_->IsScanning();
     const uint8_t count = wifi_->NetworkCount();
@@ -91,6 +133,15 @@ void UiManager::Tick() {
       last_wifi_scanning_ = scanning;
       last_wifi_count_ = count;
       RefreshWifiScannerList(false);
+    }
+  }
+  if (in_ble_scanner_ && bt_ != nullptr) {
+    const bool scanning = bt_->IsScanning();
+    const uint8_t count = bt_->DeviceCount();
+    if (scanning != last_ble_scanning_ || count != last_ble_count_) {
+      last_ble_scanning_ = scanning;
+      last_ble_count_ = count;
+      RefreshBleScannerList(false);
     }
   }
   if (in_wifi_password_ && wifi_ != nullptr) {
@@ -418,7 +469,7 @@ void UiManager::BuildBootScreen() {
   lv_obj_set_style_opa(logo_label_, LV_OPA_0, 0);
 
   lv_obj_t* subtitle = lv_label_create(boot_screen_);
-  lv_label_set_text(subtitle, "Редакция Cardputer");
+  lv_label_set_text(subtitle, "Cardputer ADV");
   lv_obj_set_style_text_color(subtitle, lv_color_hex(0x8A96A8), 0);
   lv_obj_set_style_text_font(subtitle, &font_ru_14, 0);
   lv_obj_align(subtitle, LV_ALIGN_CENTER, 0, 8);
@@ -538,6 +589,10 @@ void UiManager::BuildMenuScreen(bool forward) {
   RefreshStatusBar();
   RefreshMenuList(true);
 
+#if AXIOM_AI
+  SyncAiHost();
+#endif
+
   if (lv_screen_active() == boot_screen_) {
     return;
   }
@@ -634,7 +689,7 @@ void UiManager::RefreshStatusBar() {
   const bool wifi_warn = !wifi_on && system_status_.wifi.networks_found > 0;
   StyleModeIcon(icon_wifi_, wifi_on || wifi_warn, wifi_warn);
   StyleModeIcon(icon_rf_, system_status_.nrf.present);
-  StyleModeIcon(icon_bt_, system_status_.bt.initialized);
+  StyleModeIcon(icon_bt_, system_status_.bt.initialized || system_status_.bt.scanning);
 
   if (icon_bat_ != nullptr) {
     int32_t pct = -1;
@@ -672,6 +727,13 @@ void UiManager::RefreshStatusBar() {
   }
 
   if (breadcrumb_label_ == nullptr) return;
+
+#if AXIOM_AI
+  if (ai_ui_ && ai_ui_->Active()) {
+    lv_label_set_text(breadcrumb_label_, ai_ui_->Breadcrumb());
+    return;
+  }
+#endif
 
   if (in_settings_screen_) {
     lv_label_set_text(breadcrumb_label_, "Система / Настройки");
@@ -737,6 +799,14 @@ void UiManager::RefreshStatusBar() {
     lv_label_set_text(breadcrumb_label_, "MQTT клиент");
   } else if (in_wifi_password_) {
     lv_label_set_text(breadcrumb_label_, "Пароль WiFi");
+  } else if (in_ble_scanner_) {
+    if (bt_ != nullptr && bt_->IsScanning() && bt_->DeviceCount() == 0) {
+      lv_label_set_text(breadcrumb_label_, "Сканер BLE...");
+    } else if (bt_ != nullptr) {
+      lv_label_set_text_fmt(breadcrumb_label_, "BLE устройства: %u", bt_->DeviceCount());
+    } else {
+      lv_label_set_text(breadcrumb_label_, "Сканер BLE");
+    }
   } else if (in_wifi_scanner_) {
     if (wifi_ != nullptr && wifi_->IsScanning()) {
       lv_label_set_text(breadcrumb_label_, "Сканер WiFi...");
@@ -759,12 +829,23 @@ void UiManager::RefreshStatusBar() {
 }
 
 void UiManager::RefreshMenuList(bool animate_in) {
+#if AXIOM_AI
+  if (ai_ui_ && ai_ui_->Active()) {
+    SyncAiHost();
+    ai_ui_->Refresh(animate_in);
+    return;
+  }
+#endif
   if (in_wifi_password_) {
     RefreshWifiPasswordScreen();
     return;
   }
   if (in_wifi_scanner_) {
     RefreshWifiScannerList(animate_in);
+    return;
+  }
+  if (in_ble_scanner_) {
+    RefreshBleScannerList(animate_in);
     return;
   }
   if (in_mqtt_screen_) {
@@ -932,10 +1013,12 @@ void UiManager::RefreshWifiScannerList(bool animate_in) {
     }
     ++shown;
     const auto& net = wifi_->NetworkAt(static_cast<uint8_t>(idx));
-    TruncateText(name, sizeof(name), net.ssid, 12);
-    // Коротко: сигнал + имя + lock, без RSSI в одной строке
-    snprintf(line, sizeof(line), "%s  %s%s", SignalBars(net.rssi), name,
-             net.encrypted ? " *" : "");
+    TruncateText(name, sizeof(name), net.ssid, 11);
+    const bool remembered =
+        wifi_->HasSaved() && strcmp(wifi_->SavedSsid(), net.ssid) == 0;
+    // Коротко: сигнал + имя + lock / remembered
+    snprintf(line, sizeof(line), "%s  %s%s%s", SignalBars(net.rssi), name,
+             net.encrypted ? " *" : "", remembered ? "+" : "");
     lv_obj_remove_flag(menu_rows_[row], LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_height(menu_rows_[row], kRowH);
     lv_label_set_text(menu_texts_[row], line);
@@ -957,8 +1040,12 @@ void UiManager::RefreshWifiScannerList(bool animate_in) {
   }
 
   const auto& sel = wifi_->NetworkAt(static_cast<uint8_t>(wifi_selected_));
-  lv_label_set_text_fmt(hint_label_, "%ld дБм  кан.%u  %s", static_cast<long>(sel.rssi),
-                        sel.channel, sel.encrypted ? "WPA" : "открытая");
+  if (wifi_->HasSaved()) {
+    lv_label_set_text_fmt(hint_label_, "mem:%s  Del=забыть", wifi_->SavedSsid());
+  } else {
+    lv_label_set_text_fmt(hint_label_, "%ld дБм  кан.%u  %s", static_cast<long>(sel.rssi),
+                          sel.channel, sel.encrypted ? "WPA" : "открытая");
+  }
   if (animate_in) AnimateItemsIn(shown, true);
 }
 
@@ -1102,6 +1189,16 @@ void UiManager::OpenWifiPassword() {
     return;
   }
 
+  // Known network: connect with saved password, skip typing
+  if (wifi_->HasSaved() && strcmp(wifi_->SavedSsid(), wifi_target_ssid_) == 0) {
+    last_connect_state_ = modules::WifiConnectState::Connecting;
+    wifi_->ConnectSaved();
+    if (keyboard_) keyboard_->SetTextCapture(false);
+    RefreshWifiPasswordScreen();
+    if (audio_) audio_->Play(drivers::SoundId::MenuOpen);
+    return;
+  }
+
   if (keyboard_) keyboard_->SetTextCapture(true);
   RefreshWifiPasswordScreen();
   if (audio_) audio_->Play(drivers::SoundId::MenuOpen);
@@ -1207,6 +1304,13 @@ void UiManager::HandleWifiScannerInput(const UiInputEvent& event) {
       if (audio_) audio_->Play(drivers::SoundId::MenuOpen);
       RefreshWifiScannerList(false);
       break;
+    case drivers::InputAction::DeleteChar:
+      if (wifi_->HasSaved()) {
+        wifi_->ForgetSaved();
+        if (audio_) audio_->Play(drivers::SoundId::Success);
+        RefreshWifiScannerList(false);
+      }
+      break;
     case drivers::InputAction::Back:
       CloseWifiScanner();
       break;
@@ -1215,7 +1319,179 @@ void UiManager::HandleWifiScannerInput(const UiInputEvent& event) {
   }
 }
 
+void UiManager::RefreshBleScannerList(bool animate_in) {
+  LayoutListRows(kRowStep);
+
+  if (bt_ == nullptr) {
+    for (int i = 0; i < 6; ++i) lv_obj_add_flag(menu_rows_[i], LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(hint_label_, "BLE недоступен");
+    return;
+  }
+
+  if (bt_->IsScanning() && bt_->DeviceCount() == 0) {
+    for (int i = 0; i < 6; ++i) {
+      if (i == 0) {
+        lv_obj_remove_flag(menu_rows_[i], LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(menu_texts_[i], "Сканирование...");
+        lv_obj_set_style_text_color(menu_texts_[i], lv_color_hex(0x7DF0FF), 0);
+      } else {
+        lv_obj_add_flag(menu_rows_[i], LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+    if (selection_cursor_) {
+      lv_obj_set_y(selection_cursor_, 0);
+      lv_obj_set_height(selection_cursor_, kRowH);
+      lv_obj_clear_flag(selection_cursor_, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_label_set_text(hint_label_, "Подождите...");
+    if (animate_in) AnimateItemsIn(1, true);
+    return;
+  }
+
+  const uint8_t total = bt_->DeviceCount();
+  if (total == 0) {
+    for (int i = 0; i < 6; ++i) {
+      if (i == 0) {
+        lv_obj_remove_flag(menu_rows_[i], LV_OBJ_FLAG_HIDDEN);
+        lv_label_set_text(menu_texts_[i], "Устройства не найдены");
+        lv_obj_set_style_text_color(menu_texts_[i], lv_color_hex(0x9EB0C4), 0);
+      } else {
+        lv_obj_add_flag(menu_rows_[i], LV_OBJ_FLAG_HIDDEN);
+      }
+    }
+    ble_selected_ = 0;
+    ble_scroll_ = 0;
+    if (selection_cursor_) {
+      lv_obj_set_y(selection_cursor_, 0);
+      lv_obj_set_height(selection_cursor_, kRowH);
+    }
+    lv_label_set_text(hint_label_, "Enter/R повтор   Esc назад");
+    if (animate_in) AnimateItemsIn(1, true);
+    return;
+  }
+
+  if (ble_selected_ >= total) ble_selected_ = total - 1;
+  if (ble_selected_ < 0) ble_selected_ = 0;
+
+  constexpr int kVisible = 4;
+  if (ble_selected_ < ble_scroll_) ble_scroll_ = ble_selected_;
+  if (ble_selected_ >= ble_scroll_ + kVisible) ble_scroll_ = ble_selected_ - kVisible + 1;
+
+  char line[40];
+  char label[16];
+  int shown = 0;
+  for (int row = 0; row < 6; ++row) {
+    const int idx = ble_scroll_ + row;
+    if (row >= kVisible || idx >= total) {
+      lv_obj_add_flag(menu_rows_[row], LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    ++shown;
+    const auto& dev = bt_->DeviceAt(static_cast<uint8_t>(idx));
+    if (dev.name[0]) {
+      TruncateText(label, sizeof(label), dev.name, 11);
+    } else {
+      TruncateText(label, sizeof(label), dev.addr, 11);
+    }
+    snprintf(line, sizeof(line), "%s  %s  %d", SignalBars(dev.rssi), label,
+             static_cast<int>(dev.rssi));
+    lv_obj_remove_flag(menu_rows_[row], LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_height(menu_rows_[row], kRowH);
+    lv_label_set_text(menu_texts_[row], line);
+    lv_label_set_long_mode(menu_texts_[row], LV_LABEL_LONG_CLIP);
+    lv_obj_set_style_text_color(menu_texts_[row],
+                                lv_color_hex(idx == ble_selected_ ? 0xEAFBFF : 0x9EB0C4), 0);
+  }
+
+  const int cursor_row = ble_selected_ - ble_scroll_;
+  if (selection_cursor_) {
+    lv_obj_clear_flag(selection_cursor_, LV_OBJ_FLAG_HIDDEN);
+    if (animate_in) {
+      lv_obj_set_y(selection_cursor_, cursor_row * kRowStep);
+      lv_obj_set_height(selection_cursor_, kRowH);
+    } else {
+      AnimateSelectionCursor(cursor_row);
+    }
+  }
+
+  if (bt_->IsScanning()) {
+    lv_label_set_text(hint_label_, "Скан...  Esc назад");
+  } else {
+    lv_label_set_text(hint_label_, "Enter/R повтор   Esc назад");
+  }
+  if (animate_in) AnimateItemsIn(shown, true);
+}
+
+void UiManager::OpenBleScanner() {
+  in_ble_scanner_ = true;
+  ble_selected_ = 0;
+  ble_scroll_ = 0;
+  last_ble_count_ = 0;
+  last_ble_scanning_ = true;
+  if (bt_ != nullptr) bt_->SetScannerActive(true);
+  RefreshBleScannerList(true);
+  if (audio_) audio_->Play(drivers::SoundId::MenuOpen);
+}
+
+void UiManager::CloseBleScanner() {
+  in_ble_scanner_ = false;
+  if (bt_ != nullptr) bt_->SetScannerActive(false);
+  RefreshMenuList(true);
+  if (audio_) audio_->Play(drivers::SoundId::MenuOpen);
+}
+
+void UiManager::HandleBleScannerInput(const UiInputEvent& event) {
+  if (bt_ == nullptr) {
+    if (event.action == drivers::InputAction::Back) CloseBleScanner();
+    return;
+  }
+
+  const uint8_t total = bt_->DeviceCount();
+  switch (event.action) {
+    case drivers::InputAction::Up:
+      if (total == 0) break;
+      ble_selected_ = (ble_selected_ - 1 + total) % total;
+      if (audio_) audio_->Play(drivers::SoundId::KeyClick);
+      RefreshBleScannerList(false);
+      break;
+    case drivers::InputAction::Down:
+      if (total == 0) break;
+      ble_selected_ = (ble_selected_ + 1) % total;
+      if (audio_) audio_->Play(drivers::SoundId::KeyClick);
+      RefreshBleScannerList(false);
+      break;
+    case drivers::InputAction::Select:
+    case drivers::InputAction::Rescan:
+      bt_->StartScan();
+      last_ble_scanning_ = true;
+      if (audio_) audio_->Play(drivers::SoundId::MenuOpen);
+      RefreshBleScannerList(false);
+      break;
+    case drivers::InputAction::Back:
+      CloseBleScanner();
+      break;
+    default:
+      break;
+  }
+}
+
 void UiManager::HandleInput(const UiInputEvent& event) {
+#if AXIOM_AI
+  if (ai_ui_ && ai_ui_->Active()) {
+    SyncAiHost();
+    ai_ui_->HandleInput(event.action, event.ch);
+    if (!ai_ui_->Active()) {
+      in_submenu_ = false;
+      selected_index_ = 4;  // AI root item
+      menu_scroll_ = 0;
+      if (keyboard_) keyboard_->SetTextCapture(false);
+      BuildMenuScreen(false);
+      if (audio_) audio_->Play(drivers::SoundId::MenuOpen);
+    }
+    RefreshStatusBar();
+    return;
+  }
+#endif
   if (radio_tool_ != RadioToolId::None) {
     HandleRadioInput(event);
     RefreshStatusBar();
@@ -1255,6 +1531,11 @@ void UiManager::HandleInput(const UiInputEvent& event) {
   }
   if (in_wifi_scanner_ || in_wifi_password_) {
     HandleWifiScannerInput(event);
+    RefreshStatusBar();
+    return;
+  }
+  if (in_ble_scanner_) {
+    HandleBleScannerInput(event);
     RefreshStatusBar();
     return;
   }
@@ -1340,6 +1621,12 @@ void UiManager::SelectCurrentItem() {
     menu_scroll_ = 0;
     in_submenu_ = true;
     BuildMenuScreen(true);
+#if AXIOM_AI
+    if (active_section_ == 4 && ai_ui_ && ai_host_ready_) {
+      SyncAiHost();
+      ai_ui_->Open();
+    }
+#endif
     if (audio_) audio_->Play(drivers::SoundId::MenuOpen);
     return;
   }
@@ -1368,21 +1655,24 @@ void UiManager::SelectCurrentItem() {
         OpenWifiScanner();
         return;
       case 1:
-        OpenMqttClient();
+        OpenBleScanner();
         return;
       case 2:
-        OpenNetTool(NetToolId::Websocket);
+        OpenMqttClient();
         return;
       case 3:
-        OpenNetTool(NetToolId::Http);
+        OpenNetTool(NetToolId::Websocket);
         return;
       case 4:
-        OpenNetTool(NetToolId::Tcp);
+        OpenNetTool(NetToolId::Http);
         return;
       case 5:
-        OpenNetTool(NetToolId::Ping);
+        OpenNetTool(NetToolId::Tcp);
         return;
       case 6:
+        OpenNetTool(NetToolId::Ping);
+        return;
+      case 7:
         OpenNetTool(NetToolId::Info);
         return;
       default:
