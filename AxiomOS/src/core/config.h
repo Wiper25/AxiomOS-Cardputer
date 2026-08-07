@@ -6,6 +6,10 @@
 #define AXIOM_AI 1
 #endif
 
+#ifndef AXIOM_VOICE
+#define AXIOM_VOICE 1
+#endif
+
 namespace axiom {
 
 constexpr const char* kProjectName = "AxiomOS Cardputer Edition";

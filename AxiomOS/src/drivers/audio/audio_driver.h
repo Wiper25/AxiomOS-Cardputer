@@ -23,6 +23,8 @@ class AudioDriver {
   void Tick();
   void Play(SoundId sound);
   void SetVolume(uint8_t v);
+  // When true, UI tones are suppressed (voice owns speaker).
+  void SetExclusive(bool v) { exclusive_ = v; }
 
  private:
   void StartSequence(const Note* notes, uint8_t count);
@@ -31,6 +33,7 @@ class AudioDriver {
   uint8_t active_count_ = 0;
   uint8_t active_index_ = 0;
   uint32_t note_end_at_ms_ = 0;
+  bool exclusive_ = false;
 };
 
 }  // namespace axiom::drivers

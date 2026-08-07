@@ -13,6 +13,8 @@ enum class InputAction {
   Char,
   DeleteChar,
   Rescan,
+  VoicePtt,         // V / Fn+V pressed — start PTT
+  VoicePttRelease,  // V released — hangover then end
   QuickWireless,
   QuickNetwork,
   QuickHardware,
@@ -27,8 +29,11 @@ class KeyboardDriver {
   char LastChar() const { return last_char_; }
 
  private:
+  bool IsVoiceKeyDown() const;
+
   uint32_t last_event_ms_ = 0;
   bool text_capture_ = false;
+  bool voice_ptt_held_ = false;
   char last_char_ = 0;
 };
 

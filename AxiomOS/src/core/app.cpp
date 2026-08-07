@@ -58,6 +58,14 @@ bool App::Begin() {
   bt_.Begin();
   storage_.Begin();
 
+#if AXIOM_VOICE
+  voice::VoiceConfig vcfg;
+  voice_.Begin(vcfg);
+  voice_.SetAudioDriver(&audio_);
+  // Keep disabled until user enables in Сеть → Голос (avoids background mic/CPU)
+  ui_manager_.SetVoiceAssistant(&voice_);
+#endif
+
 #if AXIOM_AI
   ai::AiDeps ai_deps;
   ai_deps.wifi = &wifi_;
@@ -109,9 +117,20 @@ void App::Loop() {
 
   drivers::InputAction action = drivers::InputAction::None;
   if (keyboard_.Poll(action)) {
-    const char ch =
-        (action == drivers::InputAction::Char) ? keyboard_.LastChar() : static_cast<char>(0);
-    ui_manager_.PostAction(action, ch);
+#if AXIOM_VOICE
+    if (action == drivers::InputAction::VoicePtt) {
+      // Hold V = talk; release → +2s then end (see PttUp)
+      audio_.SetExclusive(false);
+      voice_.PttDown();
+    } else if (action == drivers::InputAction::VoicePttRelease) {
+      voice_.PttUp();
+    } else
+#endif
+    {
+      const char ch =
+          (action == drivers::InputAction::Char) ? keyboard_.LastChar() : static_cast<char>(0);
+      ui_manager_.PostAction(action, ch);
+    }
   }
   services::AppSettings updated;
   if (ui_manager_.ConsumeSettingsUpdate(updated)) {
@@ -123,6 +142,17 @@ void App::Loop() {
     settings_service_.Save(settings_);
   }
   audio_.Tick();
+#if AXIOM_VOICE
+  // Throttle voice FSM: every loop when active, else ~50ms
+  static uint32_t last_voice_tick_ms = 0;
+  const bool voice_hot = voice_.IsAudioExclusive();
+  const uint32_t now_ms = millis();
+  if (voice_hot || (now_ms - last_voice_tick_ms >= 50)) {
+    last_voice_tick_ms = now_ms;
+    voice_.Tick();
+    audio_.SetExclusive(voice_.IsAudioExclusive());
+  }
+#endif
 
   vTaskDelay(pdMS_TO_TICKS(1));
 }

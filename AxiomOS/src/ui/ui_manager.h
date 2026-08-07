@@ -26,6 +26,9 @@ class AIManager;
 class AIUI;
 }
 #endif
+#if AXIOM_VOICE
+#include "modules/voice/voice_assistant.h"
+#endif
 
 namespace axiom::ui {
 
@@ -80,6 +83,9 @@ class UiManager {
   void SetStorage(services::StorageService* storage) { storage_ = storage; }
   void SetNrfModule(modules::Nrf24Module* nrf) { nrf_ = nrf; }
   void SetKeyboard(drivers::KeyboardDriver* kb) { keyboard_ = kb; }
+#if AXIOM_VOICE
+  void SetVoiceAssistant(voice::VoiceAssistant* v) { voice_ = v; }
+#endif
 #if AXIOM_AI
   void SetAI(ai::AIManager* mgr, ai::AIUI* ui);
   void SyncAiHost();
@@ -107,6 +113,9 @@ class UiManager {
   void RefreshRadioScreen(bool animate_in);
   void RefreshFsBrowser(bool animate_in);
   void RefreshAboutScreen(bool animate_in);
+#if AXIOM_VOICE
+  void RefreshVoiceScreen(bool animate_in);
+#endif
   void HandleInput(const UiInputEvent& event);
   void HandleSettingsInput(drivers::InputAction action);
   void HandleWifiScannerInput(const UiInputEvent& event);
@@ -118,6 +127,9 @@ class UiManager {
   void HandleRadioInput(const UiInputEvent& event);
   void HandleFsBrowserInput(const UiInputEvent& event);
   void HandleAboutInput(drivers::InputAction action);
+#if AXIOM_VOICE
+  void HandleVoiceInput(const UiInputEvent& event);
+#endif
   void SelectCurrentItem();
   void OpenWifiScanner();
   void CloseWifiScanner();
@@ -152,6 +164,13 @@ class UiManager {
   void CloseFsBrowser();
   void OpenAbout();
   void CloseAbout();
+#if AXIOM_VOICE
+  void OpenVoiceScreen();
+  void CloseVoiceScreen();
+  void BeginVoiceEdit();
+  void CommitVoiceEdit();
+  void CancelVoiceEdit();
+#endif
   void FormatBytes(char* dst, size_t n, uint64_t bytes);
   void StyleModeIcon(lv_obj_t* icon, bool active, bool warn = false);
   void TintStatusIcon(lv_obj_t* icon, uint32_t color);
@@ -280,6 +299,16 @@ class UiManager {
   int fs_scroll_ = 0;
   bool in_about_screen_ = false;
   int about_selected_ = 0;
+#if AXIOM_VOICE
+  voice::VoiceAssistant* voice_ = nullptr;
+  bool in_voice_screen_ = false;
+  bool voice_edit_mode_ = false;
+  int voice_selected_ = 0;
+  int voice_scroll_ = 0;
+  char voice_edit_buf_[64] = {0};
+  uint8_t voice_edit_len_ = 0;
+  voice::State last_voice_state_ = voice::State::Idle;
+#endif
 #if AXIOM_AI
   ai::AIManager* ai_mgr_ = nullptr;
   ai::AIUI* ai_ui_ = nullptr;

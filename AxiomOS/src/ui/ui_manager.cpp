@@ -28,7 +28,7 @@ constexpr int32_t kRowStep = kRowH + kRowGap;
 
 struct MenuNode {
   const char* title;
-  const char* items[8];
+  const char* items[10];
   int item_count;
 };
 
@@ -39,9 +39,9 @@ constexpr MenuNode kRootMenu = {"AxiomOS",
 constexpr MenuNode kSubmenus[] = {
     {"Радио", {"Сканер спектра", "Монитор пакетов", "Менеджер nRF24"}, 3},
     {"Сеть",
-     {"Сканер WiFi", "Сканер BLE", "MQTT клиент", "Вебсокет", "HTTP клиент", "TCP клиент",
-      "Пинг / DNS", "Сеть / IP"},
-     8},
+     {"Сканер WiFi", "Сканер BLE", "Голос", "MQTT клиент", "Вебсокет", "HTTP клиент",
+      "TCP клиент", "Пинг / DNS", "Сеть / IP"},
+     9},
     {"Железо", {"Монитор GPIO", "Сканер I2C", "Датчики"}, 3},
     {"Система", {"Настройки", "Файлы / флеш", "О системе", "Обновление"}, 4},
     {"AI",
@@ -122,7 +122,11 @@ void UiManager::Tick() {
     if (keyboard_) {
       keyboard_->SetTextCapture(ai_ui_->CapturingText());
     }
-  } else if (keyboard_ && !in_wifi_password_ && !mqtt_edit_mode_ && !net_edit_mode_) {
+  } else if (keyboard_ && !in_wifi_password_ && !mqtt_edit_mode_ && !net_edit_mode_
+#if AXIOM_VOICE
+             && !voice_edit_mode_
+#endif
+  ) {
     // leave text capture to other editors; don't force off if password etc.
   }
 #endif
@@ -144,6 +148,21 @@ void UiManager::Tick() {
       RefreshBleScannerList(false);
     }
   }
+#if AXIOM_VOICE
+  if (in_voice_screen_ && voice_ != nullptr && !voice_edit_mode_) {
+    const auto st = voice_->GetState();
+    if (st != last_voice_state_) {
+      last_voice_state_ = st;
+      RefreshVoiceScreen(false);
+    } else {
+      static uint32_t last_voice_ui_ms = 0;
+      if (millis() - last_voice_ui_ms > 300) {
+        last_voice_ui_ms = millis();
+        RefreshVoiceScreen(false);
+      }
+    }
+  }
+#endif
   if (in_wifi_password_ && wifi_ != nullptr) {
     const auto st = wifi_->ConnectState();
     if (st != last_connect_state_) {
@@ -807,6 +826,10 @@ void UiManager::RefreshStatusBar() {
     } else {
       lv_label_set_text(breadcrumb_label_, "Сканер BLE");
     }
+#if AXIOM_VOICE
+  } else if (in_voice_screen_) {
+    lv_label_set_text(breadcrumb_label_, "Голос / VA");
+#endif
   } else if (in_wifi_scanner_) {
     if (wifi_ != nullptr && wifi_->IsScanning()) {
       lv_label_set_text(breadcrumb_label_, "Сканер WiFi...");
@@ -848,6 +871,12 @@ void UiManager::RefreshMenuList(bool animate_in) {
     RefreshBleScannerList(animate_in);
     return;
   }
+#if AXIOM_VOICE
+  if (in_voice_screen_) {
+    RefreshVoiceScreen(animate_in);
+    return;
+  }
+#endif
   if (in_mqtt_screen_) {
     RefreshMqttScreen(animate_in);
     return;
@@ -1478,6 +1507,247 @@ void UiManager::HandleBleScannerInput(const UiInputEvent& event) {
   }
 }
 
+#if AXIOM_VOICE
+static const char* VoiceStateName(voice::State s) {
+  switch (s) {
+    case voice::State::Listen:
+      return "LISTEN";
+    case voice::State::Thinking:
+      return "THINK";
+    case voice::State::Speak:
+      return "SPEAK";
+    default:
+      return "IDLE";
+  }
+}
+
+void UiManager::RefreshVoiceScreen(bool animate_in) {
+  LayoutListRows(kRowStep);
+  if (voice_ == nullptr) {
+    for (int i = 0; i < 6; ++i) lv_obj_add_flag(menu_rows_[i], LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(hint_label_, "Voice недоступен");
+    return;
+  }
+
+  auto& cfg = voice_->Config();
+  const auto tel = voice_->GetTelemetry();
+  constexpr int kTotal = 6;
+  char lines[kTotal][40];
+  snprintf(lines[0], 40, "State  %s", VoiceStateName(tel.state));
+  snprintf(lines[1], 40, "Host   %s", cfg.host);
+  snprintf(lines[2], 40, "Port   %u", cfg.port);
+  snprintf(lines[3], 40, "Path   %s", cfg.path);
+  snprintf(lines[4], 40, "En %s  WS %s", tel.enabled ? "ON" : "OFF",
+           tel.ws_connected ? "OK" : "--");
+  snprintf(lines[5], 40, "VAD %lu tx%lu rx%lu", static_cast<unsigned long>(tel.vad_level),
+           static_cast<unsigned long>(tel.tx_chunks),
+           static_cast<unsigned long>(tel.rx_chunks));
+
+  if (voice_selected_ >= kTotal) voice_selected_ = kTotal - 1;
+  if (voice_selected_ < 0) voice_selected_ = 0;
+  constexpr int kVisible = 4;
+  if (voice_selected_ < voice_scroll_) voice_scroll_ = voice_selected_;
+  if (voice_selected_ >= voice_scroll_ + kVisible) voice_scroll_ = voice_selected_ - kVisible + 1;
+
+  for (int row = 0; row < 6; ++row) {
+    const int idx = voice_scroll_ + row;
+    if (row >= kVisible || idx >= kTotal) {
+      lv_obj_add_flag(menu_rows_[row], LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    lv_obj_remove_flag(menu_rows_[row], LV_OBJ_FLAG_HIDDEN);
+    if (voice_edit_mode_ && idx == voice_selected_) {
+      char edit_line[40];
+      snprintf(edit_line, sizeof(edit_line), ">%s", voice_edit_buf_);
+      lv_label_set_text(menu_texts_[row], edit_line);
+    } else {
+      lv_label_set_text(menu_texts_[row], lines[idx]);
+    }
+    lv_obj_set_style_text_color(menu_texts_[row],
+                                lv_color_hex(idx == voice_selected_ ? 0xEAFBFF : 0x9EB0C4), 0);
+  }
+
+  const int cursor_row = voice_selected_ - voice_scroll_;
+  if (selection_cursor_) {
+    lv_obj_clear_flag(selection_cursor_, LV_OBJ_FLAG_HIDDEN);
+    if (animate_in) {
+      lv_obj_set_y(selection_cursor_, cursor_row * kRowStep);
+    } else {
+      AnimateSelectionCursor(cursor_row);
+    }
+  }
+
+  if (voice_edit_mode_) {
+    lv_label_set_text(hint_label_, "Enter=OK  Esc=отмена");
+  } else if (tel.state == voice::State::Idle) {
+    lv_label_set_text(hint_label_, "V=зажать  отпуст.+2с");
+  } else {
+    lv_label_set_text(hint_label_, "V=стоп  Esc=стоп");
+  }
+  if (animate_in) AnimateItemsIn(kVisible, true);
+}
+
+void UiManager::OpenVoiceScreen() {
+  in_voice_screen_ = true;
+  voice_edit_mode_ = false;
+  voice_selected_ = 0;
+  voice_scroll_ = 0;
+  voice_edit_buf_[0] = 0;
+  voice_edit_len_ = 0;
+  if (voice_) last_voice_state_ = voice_->GetState();
+  LayoutListRows(kRowStep);
+  if (keyboard_) keyboard_->SetTextCapture(false);
+  RefreshVoiceScreen(true);
+  if (audio_) audio_->Play(drivers::SoundId::MenuOpen);
+}
+
+void UiManager::CloseVoiceScreen() {
+  CancelVoiceEdit();
+  if (voice_) voice_->Cancel();
+  in_voice_screen_ = false;
+  LayoutListRows(kRowStep);
+  if (keyboard_) keyboard_->SetTextCapture(false);
+  RefreshMenuList(true);
+  if (audio_) audio_->Play(drivers::SoundId::MenuOpen);
+}
+
+void UiManager::BeginVoiceEdit() {
+  if (voice_ == nullptr) return;
+  if (voice_selected_ < 1 || voice_selected_ > 3) return;
+  auto& cfg = voice_->Config();
+  voice_edit_buf_[0] = 0;
+  voice_edit_len_ = 0;
+  if (voice_selected_ == 1) {
+    strncpy(voice_edit_buf_, cfg.host, sizeof(voice_edit_buf_) - 1);
+  } else if (voice_selected_ == 2) {
+    snprintf(voice_edit_buf_, sizeof(voice_edit_buf_), "%u", cfg.port);
+  } else if (voice_selected_ == 3) {
+    strncpy(voice_edit_buf_, cfg.path, sizeof(voice_edit_buf_) - 1);
+  }
+  voice_edit_len_ = static_cast<uint8_t>(strlen(voice_edit_buf_));
+  voice_edit_mode_ = true;
+  if (keyboard_) keyboard_->SetTextCapture(true);
+  RefreshVoiceScreen(false);
+}
+
+void UiManager::CommitVoiceEdit() {
+  if (voice_ == nullptr || !voice_edit_mode_) return;
+  auto& cfg = voice_->Config();
+  if (voice_selected_ == 1) {
+    strncpy(cfg.host, voice_edit_buf_, sizeof(cfg.host) - 1);
+    cfg.host[sizeof(cfg.host) - 1] = 0;
+  } else if (voice_selected_ == 2) {
+    cfg.port = static_cast<uint16_t>(atoi(voice_edit_buf_));
+    if (cfg.port == 0) cfg.port = voice::kDefaultWsPort;
+  } else if (voice_selected_ == 3) {
+    strncpy(cfg.path, voice_edit_buf_, sizeof(cfg.path) - 1);
+    cfg.path[sizeof(cfg.path) - 1] = 0;
+  }
+  CancelVoiceEdit();
+  RefreshVoiceScreen(false);
+}
+
+void UiManager::CancelVoiceEdit() {
+  voice_edit_mode_ = false;
+  voice_edit_buf_[0] = 0;
+  voice_edit_len_ = 0;
+  if (keyboard_) keyboard_->SetTextCapture(false);
+}
+
+void UiManager::HandleVoiceInput(const UiInputEvent& event) {
+  using A = drivers::InputAction;
+  if (voice_ == nullptr) {
+    if (event.action == A::Back) CloseVoiceScreen();
+    return;
+  }
+
+  if (voice_edit_mode_) {
+    switch (event.action) {
+      case A::Char:
+        if (voice_edit_len_ < sizeof(voice_edit_buf_) - 1 && event.ch != 0) {
+          voice_edit_buf_[voice_edit_len_++] = event.ch;
+          voice_edit_buf_[voice_edit_len_] = 0;
+          RefreshVoiceScreen(false);
+        }
+        break;
+      case A::DeleteChar:
+        if (voice_edit_len_ > 0) {
+          voice_edit_buf_[--voice_edit_len_] = 0;
+          RefreshVoiceScreen(false);
+        } else {
+          CancelVoiceEdit();
+          RefreshVoiceScreen(false);
+        }
+        break;
+      case A::Back:
+        CancelVoiceEdit();
+        RefreshVoiceScreen(false);
+        break;
+      case A::Select:
+        CommitVoiceEdit();
+        break;
+      default:
+        break;
+    }
+    return;
+  }
+
+  constexpr int kTotal = 6;
+  switch (event.action) {
+    case A::Up:
+      voice_selected_ = (voice_selected_ - 1 + kTotal) % kTotal;
+      if (audio_) audio_->Play(drivers::SoundId::KeyClick);
+      RefreshVoiceScreen(false);
+      break;
+    case A::Down:
+      voice_selected_ = (voice_selected_ + 1) % kTotal;
+      if (audio_) audio_->Play(drivers::SoundId::KeyClick);
+      RefreshVoiceScreen(false);
+      break;
+    case A::Select:
+      if (voice_selected_ >= 1 && voice_selected_ <= 3) {
+        BeginVoiceEdit();
+      } else if (voice_selected_ == 4) {
+        const bool turn_on = !voice_->Enabled();
+        if (audio_) audio_->SetExclusive(false);
+        voice_->SetEnabled(turn_on);
+        if (audio_) {
+          audio_->Play(turn_on ? drivers::SoundId::Success : drivers::SoundId::KeyClick);
+        }
+        RefreshVoiceScreen(false);
+      } else {
+        // State / VAD row: start listen session
+        if (!voice_->Enabled()) {
+          if (audio_) audio_->Play(drivers::SoundId::Error);
+          RefreshVoiceScreen(false);
+          break;
+        }
+        if (audio_) audio_->SetExclusive(false);
+        voice_->ForceListen();
+        RefreshVoiceScreen(false);
+      }
+      break;
+    case A::Rescan:
+      voice_->ForceListen();
+      RefreshVoiceScreen(false);
+      break;
+    case A::Back:
+      if (voice_->GetState() != voice::State::Idle) {
+        voice_->Cancel();
+        RefreshVoiceScreen(false);
+      } else {
+        CloseVoiceScreen();
+      }
+      break;
+    case A::DeleteChar:
+      CloseVoiceScreen();
+      break;
+    default:
+      break;
+  }
+}
+#endif  // AXIOM_VOICE
+
 void UiManager::HandleInput(const UiInputEvent& event) {
 #if AXIOM_AI
   if (ai_ui_ && ai_ui_->Active()) {
@@ -1542,6 +1812,13 @@ void UiManager::HandleInput(const UiInputEvent& event) {
     RefreshStatusBar();
     return;
   }
+#if AXIOM_VOICE
+  if (in_voice_screen_) {
+    HandleVoiceInput(event);
+    RefreshStatusBar();
+    return;
+  }
+#endif
   if (in_settings_screen_) {
     HandleSettingsInput(event.action);
     RefreshStatusBar();
@@ -1661,21 +1938,26 @@ void UiManager::SelectCurrentItem() {
         OpenBleScanner();
         return;
       case 2:
-        OpenMqttClient();
+#if AXIOM_VOICE
+        OpenVoiceScreen();
+#endif
         return;
       case 3:
-        OpenNetTool(NetToolId::Websocket);
+        OpenMqttClient();
         return;
       case 4:
-        OpenNetTool(NetToolId::Http);
+        OpenNetTool(NetToolId::Websocket);
         return;
       case 5:
-        OpenNetTool(NetToolId::Tcp);
+        OpenNetTool(NetToolId::Http);
         return;
       case 6:
-        OpenNetTool(NetToolId::Ping);
+        OpenNetTool(NetToolId::Tcp);
         return;
       case 7:
+        OpenNetTool(NetToolId::Ping);
+        return;
+      case 8:
         OpenNetTool(NetToolId::Info);
         return;
       default:

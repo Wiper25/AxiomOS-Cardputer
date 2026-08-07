@@ -7,6 +7,29 @@ namespace axiom::drivers {
 
 bool KeyboardDriver::Begin() { return true; }
 
+bool KeyboardDriver::IsVoiceKeyDown() const {
+  const auto& ks = M5Cardputer.Keyboard.keysState();
+  bool has_v = false;
+  for (char c : ks.word) {
+    if (c == 'v' || c == 'V') {
+      has_v = true;
+      break;
+    }
+  }
+  if (!has_v) {
+    for (uint8_t hid : ks.hid_keys) {
+      if (hid == 0x19) {  // HID Keyboard V
+        has_v = true;
+        break;
+      }
+    }
+  }
+  if (!has_v) return false;
+  // In text fields only Fn+V is PTT (plain V types)
+  if (text_capture_) return ks.fn;
+  return true;
+}
+
 bool KeyboardDriver::Poll(InputAction& action) {
   action = InputAction::None;
   last_char_ = 0;
@@ -14,6 +37,15 @@ bool KeyboardDriver::Poll(InputAction& action) {
 
   if (M5Cardputer.BtnA.wasPressed() || M5.BtnA.wasPressed()) {
     action = InputAction::Select;
+    return true;
+  }
+
+  // PTT edges every frame (release must work when isPressed()==false)
+  const bool v_down = IsVoiceKeyDown();
+  if (v_down != voice_ptt_held_) {
+    voice_ptt_held_ = v_down;
+    action = v_down ? InputAction::VoicePtt : InputAction::VoicePttRelease;
+    last_event_ms_ = now;
     return true;
   }
 
@@ -42,6 +74,10 @@ bool KeyboardDriver::Poll(InputAction& action) {
   if (ks.fn) {
     for (char c : ks.word) {
       switch (c) {
+        case 'v':
+        case 'V':
+          // handled by PTT edge tracker
+          break;
         case ';':
         case ':':
           action = InputAction::Up;
@@ -66,7 +102,6 @@ bool KeyboardDriver::Poll(InputAction& action) {
           break;
       }
     }
-    // Also match HID if word empty
     for (uint8_t hid : ks.hid_keys) {
       switch (hid) {
         case 0x33:  // ;
@@ -95,11 +130,13 @@ bool KeyboardDriver::Poll(InputAction& action) {
         last_event_ms_ = now;
         return true;
       }
-      // Opt/Ctrl + ;/. as scroll while typing (no Fn required alternative)
       if ((ks.opt || ks.ctrl) && (c == ';' || c == ':' || c == '.' || c == '>')) {
         action = (c == ';' || c == ':') ? InputAction::Up : InputAction::Down;
         last_event_ms_ = now;
         return true;
+      }
+      if (c == 'v' || c == 'V') {
+        // plain V in text = character (Fn+V is PTT)
       }
       if (c >= 32 && c <= 126) {
         action = InputAction::Char;
@@ -136,6 +173,10 @@ bool KeyboardDriver::Poll(InputAction& action) {
         action = InputAction::Rescan;
         last_event_ms_ = now;
         return true;
+      case 'v':
+      case 'V':
+        // PTT edge tracker only
+        break;
       case '1':
         action = InputAction::QuickWireless;
         last_event_ms_ = now;

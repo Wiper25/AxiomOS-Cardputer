@@ -39,6 +39,7 @@ void AudioDriver::Tick() {
 }
 
 void AudioDriver::Play(SoundId sound) {
+  if (exclusive_) return;
   switch (sound) {
     case SoundId::KeyClick:
       StartSequence(kKeyClickSeq, sizeof(kKeyClickSeq) / sizeof(kKeyClickSeq[0]));

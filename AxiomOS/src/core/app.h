@@ -25,6 +25,9 @@
 #include "modules/ai/AIManager.h"
 #include "modules/ai/AIUI.h"
 #endif
+#if AXIOM_VOICE
+#include "modules/voice/voice_assistant.h"
+#endif
 
 namespace axiom {
 
@@ -67,6 +70,9 @@ class App {
   ai::AIManager ai_manager_;
   ai::AIUI ai_ui_;
   TaskHandle_t ai_task_handle_ = nullptr;
+#endif
+#if AXIOM_VOICE
+  voice::VoiceAssistant voice_;
 #endif
   TaskHandle_t ui_task_handle_ = nullptr;
   TaskHandle_t nrf_task_handle_ = nullptr;
