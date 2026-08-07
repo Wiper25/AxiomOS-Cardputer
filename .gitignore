@@ -22,10 +22,15 @@ Thumbs.db
 .idea/
 *.user
 
-# Secrets
+# Secrets — NEVER commit real keys. Template only:
+#   src/modules/ai/ai_secrets.h.example  (tracked)
+#   src/modules/ai/ai_secrets.h          (local, gitignored)
 .env
 .env.*
+.env.local
 credentials.json
 *.pem
 *.key
+**/ai_secrets.h
+!**/ai_secrets.h.example
 src/modules/ai/ai_secrets.h

@@ -10,6 +10,20 @@ pio run -t upload
 pio device monitor
 ```
 
+Install local git hooks (blocks committing `ai_secrets.h`):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Windows (PowerShell):
+
+```powershell
+.\scripts\install-git-hooks.ps1
+```
+
+AI key: copy `src/modules/ai/ai_secrets.h.example` → `ai_secrets.h` (gitignored). Only the `.example` is pushed.
+
 Merge a flashable image:
 
 ```bash

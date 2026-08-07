@@ -1,0 +1,23 @@
+#!/bin/sh
+# Block committing real AI secrets. Template ai_secrets.h.example is allowed.
+
+set -e
+
+blocked="$(git diff --cached --name-only --diff-filter=ACM | grep -E '(^|/)ai_secrets\.h$' || true)"
+if [ -n "$blocked" ]; then
+  echo "ERROR: refusing to commit secret file(s):"
+  echo "$blocked"
+  echo "Use src/modules/ai/ai_secrets.h.example only. Real key stays local + gitignored."
+  exit 1
+fi
+
+# Catch force-added content / renamed copies that still contain a live-looking key.
+# Placeholder strings in *.example are fine.
+if git diff --cached -U0 | grep -E '^\+' | grep -E 'AXIOM_AI_API_KEY[[:space:]]+"[^"]{20,}"' >/dev/null 2>&1; then
+  if git diff --cached -U0 | grep -E '^\+' | grep -E 'AXIOM_AI_API_KEY[[:space:]]+"[^"]{20,}"' | grep -v 'your_ollama_api_key_here' | grep -v '^\+\+\+' >/dev/null 2>&1; then
+    echo "ERROR: staged diff looks like a real AXIOM_AI_API_KEY. Unstage it."
+    exit 1
+  fi
+fi
+
+exit 0
