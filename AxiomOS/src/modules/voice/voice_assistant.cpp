@@ -142,6 +142,7 @@ void VoiceAssistant::EnterIdle() {
   mic_run_ = false;
   spk_run_ = false;
   speak_finishing_ = false;
+  got_real_pcm_ = false;
   FlushTxQueue();
   vad_.Reset();
   cancel_req_ = false;
@@ -244,6 +245,7 @@ void VoiceAssistant::EnterSpeak() {
     SetStatus("beep fail");
   }
   speak_finishing_ = false;
+  got_real_pcm_ = false;
   (void)ws_.ConsumeServerDone();  // clear stale
   spk_run_ = true;
   state_ = State::Speak;
@@ -298,6 +300,13 @@ void VoiceAssistant::SpkTask() {
     if (n >= sizeof(int16_t)) {
       last_rx_ms_ = millis();
       const size_t samples = n / sizeof(int16_t);
+      // Keepalive silence is skipped in PlayChunk — detect real TTS
+      int16_t peak = 0;
+      for (size_t i = 0; i < samples; ++i) {
+        int16_t a = pcm[i] < 0 ? static_cast<int16_t>(-pcm[i]) : pcm[i];
+        if (a > peak) peak = a;
+      }
+      if (peak >= 64) got_real_pcm_ = true;
       if (audio_io_.PlayChunk(pcm, samples)) {
         ++rx_chunks_;
         ++ok_n;
@@ -384,11 +393,11 @@ void VoiceAssistant::Tick() {
       SetStatus("speak wrap");
     }
     const bool dma_idle = !audio_io_.IsPlaying() && ws_.RxPending() == 0;
-    const bool quiet =
-        dma_idle && (millis() - last_rx_ms_ > kSpeakQuietExitMs);
-    // Server done → leave as soon as DMA drained (don't wait full quiet window)
+    // NEVER quiet-exit on keepalive-only (killed TTS while Ollama still thinking)
+    const bool quiet = got_real_pcm_ && dma_idle &&
+                       (millis() - last_rx_ms_ > kSpeakQuietExitMs);
     const bool server_done_exit = speak_finishing_ && dma_idle &&
-                                  (millis() - last_rx_ms_ > 80);
+                                  (millis() - last_rx_ms_ > 120);
     if (quiet || server_done_exit ||
         (millis() - last_rx_ms_ > kSpeakIdleTimeoutMs)) {
       SetStatus(server_done_exit || quiet ? "speak done" : "speak timeout");

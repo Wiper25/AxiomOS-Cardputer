@@ -27,8 +27,8 @@ constexpr uint32_t kSilenceEndMs = 800;
 constexpr uint32_t kMaxListenMs = 12000;
 constexpr uint32_t kPttHangoverMs = 700;   // was 2000 — быстрее end→ASR
 constexpr uint32_t kSpeakIdleTimeoutMs = 45000;
-// After last PCM: exit Speak fast so V works again (was 12000 → "5s dead mic")
-constexpr uint32_t kSpeakQuietExitMs = 350;
+// After REAL speech PCM drained (not keepalive silence). Was 350 — raced Ollama TTFT.
+constexpr uint32_t kSpeakQuietExitMs = 700;
 constexpr uint8_t kListenTxBudget = 1;
 
 // Playback EQ for tiny ADV speaker — clarity without tearing the cone.
