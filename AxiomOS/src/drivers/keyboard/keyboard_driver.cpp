@@ -173,6 +173,11 @@ bool KeyboardDriver::Poll(InputAction& action) {
         action = InputAction::Rescan;
         last_event_ms_ = now;
         return true;
+      case 'w':
+      case 'W':
+        action = InputAction::QuickWireless;
+        last_event_ms_ = now;
+        return true;
       case 'v':
       case 'V':
         // PTT edge tracker only
