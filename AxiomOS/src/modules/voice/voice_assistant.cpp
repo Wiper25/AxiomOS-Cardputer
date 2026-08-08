@@ -83,10 +83,10 @@ void VoiceAssistant::PttDown() {
     SetStatus("listening");
     return;
   }
-  // Do NOT cancel Thinking/Speak — that was "перестал отвечать":
-  // 2nd V during ASR reconnects WS → server aborts TTS.
+  // Don't cancel Think/Speak — queue next Listen for after Idle
   if (state_ == State::Thinking || state_ == State::Speak) {
-    SetStatus("busy — wait");
+    pending_listen_ = true;
+    SetStatus("queued");
     return;
   }
   force_listen_ = true;
@@ -141,13 +141,14 @@ bool VoiceAssistant::EnsureWs() {
 void VoiceAssistant::EnterIdle() {
   mic_run_ = false;
   spk_run_ = false;
+  speak_finishing_ = false;
   FlushTxQueue();
   vad_.Reset();
   cancel_req_ = false;
   wake_req_ = false;
   ptt_held_ = false;
   ptt_release_ms_ = 0;
-  if (!force_listen_) ptt_session_ = false;
+  if (!force_listen_ && !pending_listen_) ptt_session_ = false;
   // Must end Speaker too — otherwise 2nd Listen gets silent mic (peak~30)
   audio_io_.ReleaseBus();
   if (state_ != State::Idle || ws_.IsConnected()) {
@@ -155,7 +156,13 @@ void VoiceAssistant::EnterIdle() {
   }
   state_ = State::Idle;
   if (audio_) audio_->SetExclusive(false);
-  SetStatus(enabled_ ? "voice idle" : "voice off");
+  if (pending_listen_) {
+    pending_listen_ = false;
+    force_listen_ = true;
+    SetStatus("voice idle→listen");
+  } else {
+    SetStatus(enabled_ ? "voice idle" : "voice off");
+  }
 }
 
 void VoiceAssistant::EnterListen(bool from_vad) {
@@ -222,7 +229,6 @@ void VoiceAssistant::EnterThinking() {
 void VoiceAssistant::EnterSpeak() {
   audio_io_.MicStop();
   vTaskDelay(pdMS_TO_TICKS(40));
-  // Force clean Speaker.begin after mic (ADV ES8311)
   audio_io_.StopPlayback();
   if (!audio_io_.EnsureSpeaker()) {
     SetStatus("spk fail");
@@ -237,6 +243,8 @@ void VoiceAssistant::EnterSpeak() {
   if (!audio_io_.PlayTestBeep()) {
     SetStatus("beep fail");
   }
+  speak_finishing_ = false;
+  (void)ws_.ConsumeServerDone();  // clear stale
   spk_run_ = true;
   state_ = State::Speak;
   last_rx_ms_ = millis();
@@ -371,12 +379,21 @@ void VoiceAssistant::Tick() {
   }
 
   if (state_ == State::Speak) {
-    const bool quiet = !audio_io_.IsPlaying() && ws_.RxPending() == 0 &&
-                       (millis() - last_rx_ms_ > kSpeakQuietExitMs);
-    if (quiet || (millis() - last_rx_ms_ > kSpeakIdleTimeoutMs)) {
-      SetStatus(quiet ? "speak done" : "speak timeout");
+    if (ws_.ConsumeServerDone()) {
+      speak_finishing_ = true;
+      SetStatus("speak wrap");
+    }
+    const bool dma_idle = !audio_io_.IsPlaying() && ws_.RxPending() == 0;
+    const bool quiet =
+        dma_idle && (millis() - last_rx_ms_ > kSpeakQuietExitMs);
+    // Server done → leave as soon as DMA drained (don't wait full quiet window)
+    const bool server_done_exit = speak_finishing_ && dma_idle &&
+                                  (millis() - last_rx_ms_ > 80);
+    if (quiet || server_done_exit ||
+        (millis() - last_rx_ms_ > kSpeakIdleTimeoutMs)) {
+      SetStatus(server_done_exit || quiet ? "speak done" : "speak timeout");
       spk_run_ = false;
-      vTaskDelay(pdMS_TO_TICKS(200));
+      vTaskDelay(pdMS_TO_TICKS(80));
       EnterIdle();
     }
   }

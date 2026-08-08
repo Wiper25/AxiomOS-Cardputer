@@ -6,6 +6,18 @@
 
 namespace axiom::voice {
 
+namespace {
+bool PayloadHasDone(const uint8_t* payload, size_t length) {
+  if (!payload || length < 8) return false;
+  char buf[128];
+  const size_t n = length < sizeof(buf) - 1 ? length : sizeof(buf) - 1;
+  memcpy(buf, payload, n);
+  buf[n] = 0;
+  return strstr(buf, "\"event\":\"done\"") != nullptr ||
+         strstr(buf, "\"event\": \"done\"") != nullptr;
+}
+}  // namespace
+
 VoiceWs* VoiceWs::instance_ = nullptr;
 
 bool VoiceWs::Begin() {
@@ -50,7 +62,7 @@ void VoiceWs::OnEvent(WStype_t type, uint8_t* payload, size_t length) {
       PushRx(payload, length);
       break;
     case WStype_TEXT:
-      // control ACKs ignored for now
+      if (PayloadHasDone(payload, length)) server_done_ = true;
       break;
     case WStype_ERROR:
       state_ = VoiceWsState::Error;
@@ -76,9 +88,16 @@ bool VoiceWs::Connect(const char* host, uint16_t port, const char* path) {
 void VoiceWs::Disconnect() {
   ws_.disconnect();
   state_ = VoiceWsState::Idle;
+  server_done_ = false;
   portENTER_CRITICAL(&rx_mux_);
   rx_head_ = rx_tail_ = rx_count_ = 0;
   portEXIT_CRITICAL(&rx_mux_);
+}
+
+bool VoiceWs::ConsumeServerDone() {
+  if (!server_done_) return false;
+  server_done_ = false;
+  return true;
 }
 
 bool VoiceWs::IsConnected() const { return state_ == VoiceWsState::Connected; }

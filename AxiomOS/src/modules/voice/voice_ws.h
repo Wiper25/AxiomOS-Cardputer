@@ -28,6 +28,9 @@ class VoiceWs {
   size_t PopRx(uint8_t* dst, size_t max_bytes);
   uint8_t RxPending() const { return rx_count_; }
 
+  // Server TEXT {"event":"done"} — Speak can end without waiting quiet timeout
+  bool ConsumeServerDone();
+
  private:
   static void OnEventThunk(WStype_t type, uint8_t* payload, size_t length);
   void OnEvent(WStype_t type, uint8_t* payload, size_t length);
@@ -46,6 +49,7 @@ class VoiceWs {
   uint8_t rx_tail_ = 0;
   uint8_t rx_count_ = 0;
   portMUX_TYPE rx_mux_ = portMUX_INITIALIZER_UNLOCKED;
+  volatile bool server_done_ = false;
 };
 
 }  // namespace axiom::voice

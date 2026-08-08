@@ -74,7 +74,9 @@ class VoiceAssistant {
   bool enabled_ = false;
   bool began_ = false;
   bool force_listen_ = false;
+  bool pending_listen_ = false;  // V during Think/Speak → Listen after Idle
   bool cancel_req_ = false;
+  bool speak_finishing_ = false;  // got server done / draining DMA
   volatile bool wake_req_ = false;
   volatile bool ptt_held_ = false;
   uint32_t ptt_release_ms_ = 0;  // 0 = no hangover; else millis at release
