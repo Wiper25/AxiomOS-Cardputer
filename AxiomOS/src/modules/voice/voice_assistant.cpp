@@ -97,7 +97,7 @@ void VoiceAssistant::PttUp() {
   if (!ptt_session_) return;
   if (state_ == State::Listen || force_listen_) {
     ptt_release_ms_ = millis();
-    SetStatus("hang +2s");
+    SetStatus("hang +0.7s");
   }
 }
 
