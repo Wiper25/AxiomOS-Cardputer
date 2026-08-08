@@ -2,49 +2,37 @@
 
 #include <stdint.h>
 
+// Voice-only build (plan: branch minimal)
 #ifndef AXIOM_AI
-#define AXIOM_AI 1
+#define AXIOM_AI 0
 #endif
 
 #ifndef AXIOM_VOICE
 #define AXIOM_VOICE 1
 #endif
 
-namespace axiom {
-
-constexpr const char* kProjectName = "AxiomOS Cardputer Edition";
-constexpr const char* kProjectVersion = "0.1.0";
-constexpr uint32_t kLvglTickMs = 5;
-constexpr uint32_t kUiTaskPeriodMs = 5;
-constexpr uint32_t kUiTaskStackWords = 6144;
-constexpr uint32_t kUiTaskPriority = 3;
-constexpr uint32_t kNrfTaskPeriodMs = 400;
-constexpr uint32_t kNrfTaskStackWords = 4096;
-constexpr uint32_t kNrfTaskPriority = 2;
-constexpr uint32_t kServicesTaskPeriodMs = 500;
-constexpr uint32_t kServicesTaskStackWords = 6144;
-constexpr uint32_t kServicesTaskPriority = 2;
-
-#if AXIOM_AI
-constexpr uint32_t kAiTaskPeriodMs = 50;
-constexpr uint32_t kAiTaskStackWords = 16384;
-constexpr uint32_t kAiTaskPriority = 1;
+// --- Edit these (or -DAXIOM_WIFI_SSID=... in platformio.ini) ---
+#ifndef AXIOM_WIFI_SSID
+#define AXIOM_WIFI_SSID "YOUR_SSID"
+#endif
+#ifndef AXIOM_WIFI_PASS
+#define AXIOM_WIFI_PASS "YOUR_PASSWORD"
+#endif
+#ifndef AXIOM_VOICE_HOST
+#define AXIOM_VOICE_HOST "170.168.91.194"
+#endif
+#ifndef AXIOM_VOICE_PORT
+#define AXIOM_VOICE_PORT 8090
+#endif
+#ifndef AXIOM_VOICE_PATH
+#define AXIOM_VOICE_PATH "/voice"
 #endif
 
-constexpr int kNrfCePin = 4;
-constexpr int kNrfCsnPin = 12;
-constexpr int kNrfSckPin = 40;
-constexpr int kNrfMosiPin = 14;
-constexpr int kNrfMisoPin = 39;
+namespace axiom {
 
-// Cardputer microSD (same SPI as EXT / nRF)
-constexpr int kSdSckPin = 40;
-constexpr int kSdMisoPin = 39;
-constexpr int kSdMosiPin = 14;
-constexpr int kSdCsPin = 12;
+constexpr const char* kProjectName = "AxiomOS Voice";
+constexpr const char* kProjectVersion = "0.2.0-minimal";
 
-// Grove I2C
-constexpr int kGroveSdaPin = 2;
-constexpr int kGroveSclPin = 1;
+constexpr uint32_t kStatusRedrawMs = 200;
 
 }  // namespace axiom

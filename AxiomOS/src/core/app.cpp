@@ -2,247 +2,132 @@
 
 #include <Arduino.h>
 #include <M5Cardputer.h>
+#include <WiFi.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "core/config.h"
 
 namespace axiom {
+namespace {
+
+const char* StateName(voice::State s) {
+  switch (s) {
+    case voice::State::Listen:
+      return "LISTEN";
+    case voice::State::Thinking:
+      return "THINK";
+    case voice::State::Speak:
+      return "SPEAK";
+    default:
+      return "IDLE";
+  }
+}
+
+}  // namespace
 
 bool App::Begin() {
   auto cfg = M5.config();
   M5Cardputer.begin(cfg, true);
-  storage_.Begin();
-  settings_service_.Begin();
-  settings_service_.Load(settings_);
+  M5.Display.setRotation(1);
+  M5.Display.setBrightness(180);
+  M5.Display.fillScreen(TFT_BLACK);
+  M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+  M5.Display.setTextSize(1);
+  M5.Display.setCursor(4, 4);
+  M5.Display.println("AxiomOS Voice");
+  M5.Display.println("booting...");
 
-  if (!display_.Begin()) {
-    return false;
-  }
-  if (!keyboard_.Begin()) {
-    return false;
-  }
-  if (!audio_.Begin()) {
-    return false;
-  }
-  audio_.SetVolume(settings_.volume);
-  M5.Display.setBrightness(settings_.brightness);
-  if (!ui_manager_.Begin(display_)) {
-    return false;
-  }
-  ui_manager_.SetAudioDriver(&audio_);
-  ui_manager_.SetWifiModule(&wifi_);
-  ui_manager_.SetBluetoothModule(&bt_);
-  ui_manager_.SetMqttModule(&mqtt_);
-  ui_manager_.SetWebsocketModule(&websocket_);
-  ui_manager_.SetHttpModule(&http_);
-  ui_manager_.SetTcpModule(&tcp_);
-  ui_manager_.SetPingModule(&ping_);
-  ui_manager_.SetGpioModule(&gpio_);
-  ui_manager_.SetI2cModule(&i2c_);
-  ui_manager_.SetSensorsModule(&sensors_);
-  ui_manager_.SetStorage(&storage_);
-  ui_manager_.SetNrfModule(&nrf24_);
-  ui_manager_.SetKeyboard(&keyboard_);
-  ui_manager_.SetSettingsSnapshot(settings_);
-  nrf24_.Begin();
-  nrf24_.SetChannel(settings_.rf_channel);
-  nrf24_.SetPower(settings_.rf_power);
+  if (!keyboard_.Begin()) return false;
+  if (!audio_.Begin()) return false;
+  audio_.SetVolume(200);
+
   wifi_.Begin();
-  mqtt_.Begin();
-  websocket_.Begin();
-  http_.Begin();
-  tcp_.Begin();
-  ping_.Begin();
-  gpio_.Begin();
-  i2c_.Begin();
-  sensors_.Begin();
-  bt_.Begin();
-  storage_.Begin();
-
-#if AXIOM_VOICE
-  voice::VoiceConfig vcfg;
-  voice_.Begin(vcfg);
-  voice_.SetAudioDriver(&audio_);
-  // Keep disabled until user enables in Сеть → Голос (avoids background mic/CPU)
-  ui_manager_.SetVoiceAssistant(&voice_);
-#endif
-
-#if AXIOM_AI
-  ai::AiDeps ai_deps;
-  ai_deps.wifi = &wifi_;
-  ai_deps.nrf = &nrf24_;
-  ai_deps.mqtt = &mqtt_;
-  ai_deps.sensors = &sensors_;
-  ai_deps.bt = &bt_;
-  ai_deps.storage = &storage_;
-  ai_deps.open_settings = nullptr;
-  ai_deps.show_logs = nullptr;
-  if (!ai_manager_.Begin(ai_deps)) {
-    // Non-fatal: continue without AI task if queue alloc fails
+  M5.Display.println("wifi...");
+  if (strcmp(AXIOM_WIFI_SSID, "YOUR_SSID") == 0) {
+    M5.Display.setTextColor(TFT_YELLOW, TFT_BLACK);
+    M5.Display.println("EDIT WIFI in config.h");
   } else {
-    ai_ui_.Bind(&ai_manager_);
-    ui_manager_.SetAI(&ai_manager_, &ai_ui_);
+    wifi_.Connect(AXIOM_WIFI_SSID, AXIOM_WIFI_PASS);
   }
-#endif
 
-  ui::SystemStatus boot_status;
-  boot_status.nrf = nrf24_.GetTelemetry();
-  boot_status.wifi = wifi_.GetTelemetry();
-  boot_status.bt = bt_.GetTelemetry();
-  ui_manager_.SetSystemStatus(boot_status);
+  voice::VoiceConfig vcfg;
+  strncpy(vcfg.host, AXIOM_VOICE_HOST, sizeof(vcfg.host) - 1);
+  vcfg.port = static_cast<uint16_t>(AXIOM_VOICE_PORT);
+  strncpy(vcfg.path, AXIOM_VOICE_PATH, sizeof(vcfg.path) - 1);
+  vcfg.enabled = true;
+  if (!voice_.Begin(vcfg)) return false;
+  voice_.SetAudioDriver(&audio_);
+  voice_.SetEnabled(true);
+
   audio_.Play(drivers::SoundId::BootMelody);
+  DrawStatus(true);
+  return true;
+}
 
-  const BaseType_t result = xTaskCreatePinnedToCore(
-      UiTaskEntry, "axiom_ui", kUiTaskStackWords, this, kUiTaskPriority,
-      &ui_task_handle_, 1);
-  const BaseType_t nrf_result = xTaskCreatePinnedToCore(
-      NrfTaskEntry, "axiom_nrf", kNrfTaskStackWords, this, kNrfTaskPriority,
-      &nrf_task_handle_, 0);
-  const BaseType_t svc_result = xTaskCreatePinnedToCore(
-      ServicesTaskEntry, "axiom_services", kServicesTaskStackWords, this,
-      kServicesTaskPriority, &services_task_handle_, 0);
+void App::DrawStatus(bool force) {
+  const auto wt = wifi_.GetTelemetry();
+  const auto vt = voice_.GetTelemetry();
 
-#if AXIOM_AI
-  const BaseType_t ai_result = xTaskCreatePinnedToCore(
-      AiTaskEntry, "axiom_ai", kAiTaskStackWords, this, kAiTaskPriority,
-      &ai_task_handle_, 0);
-  return result == pdPASS && nrf_result == pdPASS && svc_result == pdPASS &&
-         ai_result == pdPASS;
-#else
-  return result == pdPASS && nrf_result == pdPASS && svc_result == pdPASS;
-#endif
+  char key[96];
+  snprintf(key, sizeof(key), "%d|%s|%d|%s|%s|%s",
+           wt.connected ? 1 : 0, wt.connected_ssid, static_cast<int>(vt.state), vt.status,
+           vt.ws_connected ? "ws" : "-", WiFi.localIP().toString().c_str());
+  if (!force && strcmp(key, last_status_key_) == 0) return;
+  strncpy(last_status_key_, key, sizeof(last_status_key_) - 1);
+
+  M5.Display.fillScreen(TFT_BLACK);
+  M5.Display.setTextColor(TFT_CYAN, TFT_BLACK);
+  M5.Display.setCursor(4, 4);
+  M5.Display.printf("AxiomOS Voice %s\n", kProjectVersion);
+
+  M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+  M5.Display.printf("WiFi %s\n", wt.connected ? "OK" : "WAIT");
+  if (wt.connected) {
+    M5.Display.printf("%s\n", wt.connected_ssid);
+    M5.Display.printf("%s\n", WiFi.localIP().toString().c_str());
+    M5.Display.printf("rssi %d\n", static_cast<int>(wt.link_rssi));
+  } else {
+    M5.Display.printf("ssid %s\n", AXIOM_WIFI_SSID);
+  }
+
+  M5.Display.printf("\nSRV %s:%u\n", AXIOM_VOICE_HOST, AXIOM_VOICE_PORT);
+  M5.Display.setTextColor(TFT_GREENYELLOW, TFT_BLACK);
+  M5.Display.printf("STATE %s\n", StateName(vt.state));
+  M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+  M5.Display.printf("%s\n", vt.status);
+  M5.Display.printf("ws %s  tx%lu rx%lu\n", vt.ws_connected ? "ON" : "off",
+                    static_cast<unsigned long>(vt.tx_chunks),
+                    static_cast<unsigned long>(vt.rx_chunks));
+  M5.Display.setTextColor(TFT_DARKGREY, TFT_BLACK);
+  M5.Display.println("\nHold V = talk");
 }
 
 void App::Loop() {
   M5Cardputer.update();
+  wifi_.Tick();
 
   drivers::InputAction action = drivers::InputAction::None;
   if (keyboard_.Poll(action)) {
-#if AXIOM_VOICE
     if (action == drivers::InputAction::VoicePtt) {
-      // Hold V = talk; release → +2s then end (see PttUp)
       audio_.SetExclusive(false);
       voice_.PttDown();
     } else if (action == drivers::InputAction::VoicePttRelease) {
       voice_.PttUp();
-    } else
-#endif
-    {
-      const char ch =
-          (action == drivers::InputAction::Char) ? keyboard_.LastChar() : static_cast<char>(0);
-      ui_manager_.PostAction(action, ch);
     }
   }
-  services::AppSettings updated;
-  if (ui_manager_.ConsumeSettingsUpdate(updated)) {
-    settings_ = updated;
-    M5.Display.setBrightness(settings_.brightness);
-    audio_.SetVolume(settings_.volume);
-    nrf24_.SetChannel(settings_.rf_channel);
-    nrf24_.SetPower(settings_.rf_power);
-    settings_service_.Save(settings_);
-  }
+
   audio_.Tick();
-#if AXIOM_VOICE
-  // Throttle voice FSM: every loop when active, else ~50ms
-  static uint32_t last_voice_tick_ms = 0;
-  const bool voice_hot = voice_.IsAudioExclusive();
-  const uint32_t now_ms = millis();
-  if (voice_hot || (now_ms - last_voice_tick_ms >= 50)) {
-    last_voice_tick_ms = now_ms;
-    voice_.Tick();
-    audio_.SetExclusive(voice_.IsAudioExclusive());
+  voice_.Tick();
+  audio_.SetExclusive(voice_.IsAudioExclusive());
+
+  const uint32_t now = millis();
+  if (now - last_status_ms_ >= kStatusRedrawMs) {
+    last_status_ms_ = now;
+    DrawStatus(false);
   }
-#endif
 
   vTaskDelay(pdMS_TO_TICKS(1));
-}
-
-void App::UiTaskEntry(void* arg) {
-  auto* self = static_cast<App*>(arg);
-  self->UiTask();
-}
-
-void App::NrfTaskEntry(void* arg) {
-  auto* self = static_cast<App*>(arg);
-  self->NrfTask();
-}
-
-void App::ServicesTaskEntry(void* arg) {
-  auto* self = static_cast<App*>(arg);
-  self->ServicesTask();
-}
-
-#if AXIOM_AI
-void App::AiTaskEntry(void* arg) {
-  auto* self = static_cast<App*>(arg);
-  self->AiTask();
-}
-
-void App::AiTask() {
-  for (;;) {
-    ai_manager_.Tick();
-    vTaskDelay(pdMS_TO_TICKS(kAiTaskPeriodMs));
-  }
-}
-#endif
-
-void App::UiTask() {
-  for (;;) {
-    ui_manager_.Tick();
-    vTaskDelay(pdMS_TO_TICKS(kUiTaskPeriodMs));
-  }
-}
-
-void App::NrfTask() {
-  for (;;) {
-    nrf24_.Tick();
-    ui::SystemStatus status;
-    status.nrf = nrf24_.GetTelemetry();
-    status.wifi = wifi_.GetTelemetry();
-    status.bt = bt_.GetTelemetry();
-    ui_manager_.SetSystemStatus(status);
-    vTaskDelay(pdMS_TO_TICKS(kNrfTaskPeriodMs));
-  }
-}
-
-void App::ServicesTask() {
-  uint32_t last_save_ms = 0;
-  uint8_t last_rf_channel = settings_.rf_channel;
-  uint8_t last_rf_power = settings_.rf_power;
-  for (;;) {
-    wifi_.Tick();
-    mqtt_.Tick();
-    websocket_.Tick();
-    http_.Tick();
-    tcp_.Tick();
-    ping_.Tick();
-    gpio_.Tick();
-    i2c_.Tick();
-    sensors_.Tick();
-    storage_.Tick();
-    bt_.Tick();
-
-    ui::SystemStatus status;
-    status.nrf = nrf24_.GetTelemetry();
-    status.wifi = wifi_.GetTelemetry();
-    status.bt = bt_.GetTelemetry();
-    ui_manager_.SetSystemStatus(status);
-
-    const auto t = status.nrf;
-    settings_.rf_channel = t.current_channel;
-    settings_.rf_power = t.pa_level;
-    const bool changed =
-        (settings_.rf_channel != last_rf_channel) || (settings_.rf_power != last_rf_power);
-    const uint32_t now = millis();
-    if (changed && (now - last_save_ms >= 30000U)) {
-      settings_service_.Save(settings_);
-      last_save_ms = now;
-      last_rf_channel = settings_.rf_channel;
-      last_rf_power = settings_.rf_power;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(kServicesTaskPeriodMs));
-  }
 }
 
 }  // namespace axiom

@@ -16,21 +16,22 @@ class VoiceAudioIo {
   void MicStop();
   bool MicRunning() const { return mic_running_; }
 
-  // Blocking-ish record into dst (kChunkSamples). Returns false if mic idle/fail.
-  bool ReadChunk(int16_t* dst, size_t samples = kChunkSamples);
+  bool EnsureSpeaker();
 
-  // Queue PCM for DMA playback (copies into internal slot). Returns false if full.
+  bool ReadChunk(int16_t* dst, size_t samples = kChunkSamples);
   bool PlayChunk(const int16_t* pcm, size_t samples);
+  bool PlayTestBeep();
   bool IsPlaying() const;
   void StopPlayback();
   uint8_t PlaybackQueued() const { return play_queued_; }
 
  private:
   bool mic_running_ = false;
+  bool spk_ready_ = false;
   bool began_ = false;
-  // Double-buffer for playRaw lifetime
-  int16_t play_a_[kChunkSamples];
-  int16_t play_b_[kChunkSamples];
+  static constexpr uint8_t kPlayBufCount = 16;
+  static constexpr int kTtsChannel = 0;
+  int16_t play_buf_[kPlayBufCount][kChunkSamples];
   uint8_t play_toggle_ = 0;
   volatile uint8_t play_queued_ = 0;
 };
