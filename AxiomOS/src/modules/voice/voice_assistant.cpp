@@ -209,6 +209,9 @@ void VoiceAssistant::EnterThinking() {
 
 void VoiceAssistant::EnterSpeak() {
   audio_io_.MicStop();
+  vTaskDelay(pdMS_TO_TICKS(40));
+  // Force clean Speaker.begin after mic (ADV ES8311)
+  audio_io_.StopPlayback();
   if (!audio_io_.EnsureSpeaker()) {
     SetStatus("spk fail");
     if (audio_) {
@@ -219,7 +222,9 @@ void VoiceAssistant::EnterSpeak() {
     return;
   }
   if (audio_) audio_->SetExclusive(true);
-  audio_io_.PlayTestBeep();
+  if (!audio_io_.PlayTestBeep()) {
+    SetStatus("beep fail");
+  }
   spk_run_ = true;
   state_ = State::Speak;
   last_rx_ms_ = millis();

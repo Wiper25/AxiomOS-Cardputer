@@ -76,6 +76,20 @@ void App::DrawStatus(bool force) {
   if (!force && strcmp(key, last_status_key_) == 0) return;
   strncpy(last_status_key_, key, sizeof(last_status_key_) - 1);
 
+  // During Speak: never fillScreen — SPI display starves I2S / WS loop → mute TTS
+  if (vt.state == voice::State::Speak && !force) {
+    M5.Display.fillRect(0, 70, M5.Display.width(), 50, TFT_BLACK);
+    M5.Display.setTextColor(TFT_GREENYELLOW, TFT_BLACK);
+    M5.Display.setCursor(4, 72);
+    M5.Display.printf("STATE %s\n", StateName(vt.state));
+    M5.Display.setTextColor(TFT_WHITE, TFT_BLACK);
+    M5.Display.printf("%s\n", vt.status);
+    M5.Display.printf("ws %s  tx%lu rx%lu\n", vt.ws_connected ? "ON" : "off",
+                      static_cast<unsigned long>(vt.tx_chunks),
+                      static_cast<unsigned long>(vt.rx_chunks));
+    return;
+  }
+
   M5.Display.fillScreen(TFT_BLACK);
   M5.Display.setTextColor(TFT_CYAN, TFT_BLACK);
   M5.Display.setCursor(4, 4);
@@ -118,11 +132,14 @@ void App::Loop() {
   }
 
   audio_.Tick();
+  // Voice first — don't let UI redraw delay WS/PCM
   voice_.Tick();
   audio_.SetExclusive(voice_.IsAudioExclusive());
 
   const uint32_t now = millis();
-  if (now - last_status_ms_ >= kStatusRedrawMs) {
+  const uint32_t redraw_ms =
+      (voice_.GetState() == voice::State::Speak) ? 500 : kStatusRedrawMs;
+  if (now - last_status_ms_ >= redraw_ms) {
     last_status_ms_ = now;
     DrawStatus(false);
   }
