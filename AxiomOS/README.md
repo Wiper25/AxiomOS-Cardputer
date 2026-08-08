@@ -1,176 +1,22 @@
-# AxiomOS Cardputer Edition
+# AxiomOS Cardputer — voice-only
 
-[![Release](https://img.shields.io/github/v/release/Wiper25/AxiomOS-Cardputer?style=for-the-badge&color=00D1FF)](https://github.com/Wiper25/AxiomOS-Cardputer/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/Wiper25/AxiomOS-Cardputer/total?style=for-the-badge&color=7B2CFF)](https://github.com/Wiper25/AxiomOS-Cardputer/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-00D1FF?style=for-the-badge)](LICENSE)
-[![Platform](https://img.shields.io/badge/ESP32--S3-Cardputer%20ADV-1C2738?style=for-the-badge)](docs/DEVICES.md)
-[![Stars](https://img.shields.io/github/stars/Wiper25/AxiomOS-Cardputer?style=for-the-badge)](https://github.com/Wiper25/AxiomOS-Cardputer/stargazers)
+Hold **V** → record → release (+2s) → ASR → Ollama → ElevenLabs → speaker.
 
-**Custom firmware for [M5Stack Cardputer ADV](https://docs.m5stack.com/en/core/CardputerADV)** — radio tools, network clients, hardware probes, and a fast LVGL UI that fits a pocket keyboard.
+## Configure
 
-> **Just want to flash?** → **[Download latest `.bin` from Releases](https://github.com/Wiper25/AxiomOS-Cardputer/releases/latest)**  
-> Grab `AxiomOS-Cardputer-ADV-*-merged.bin` and write it at address **`0x0`**.
+Edit `src/core/config.h` or `platformio.ini` `build_flags`:
 
-<p align="center">
-  <b>EN</b> · <a href="docs/INSTALL.ru.md">RU</a> · <a href="docs/INSTALL.zh.md">中文</a> · <a href="docs/INSTALL.es.md">ES</a> · <a href="docs/INSTALL.pt.md">PT</a> · <a href="docs/INSTALL.de.md">DE</a>
-</p>
+- `AXIOM_WIFI_SSID` / `AXIOM_WIFI_PASS`
+- `AXIOM_VOICE_HOST` (VPS IP)
+- `AXIOM_VOICE_PORT` (8090)
 
----
+## Build / flash
 
-## Why AxiomOS?
-
-Most Cardputer firmwares are either toy demos or giant “Swiss army knives”. AxiomOS is a **focused toolkit OS**:
-
-- Instant menu navigation on the built-in keyboard
-- Real **nRF24** spectrum + packet tools (ADV onboard radio)
-- Practical **network stack** (Wi‑Fi, MQTT, WS, HTTP, TCP, Ping/DNS)
-- Hardware diagnostics (GPIO, async I2C, IMU graphs)
-- Open source, PlatformIO, MIT — fork-friendly
-
-If this saves you an afternoon, **star the repo** so others find it.
-
----
-
-## Features
-
-### Radio
-- Spectrum scanner with live channel bars
-- Packet monitor (RX hex)
-- nRF24 manager: channel / power / rate / TX test
-
-### Network
-- Wi‑Fi scanner + connect
-- MQTT / WebSocket / HTTP / TCP clients
-- Ping & DNS lookup
-- IP / link info
-
-### Hardware
-- GPIO monitor
-- Non-blocking I2C bus scan
-- IMU live view + accel/gyro graph
-
-### System
-- Settings persistence
-- LittleFS file browser (+ optional SD)
-- Status bar: Wi‑Fi · RF · BT · battery %
-
-> UI language in v0.1.0: **Russian** (EN/i18n planned).
-
----
-
-## Quick install
-
-1. Open **[Releases → Latest](https://github.com/Wiper25/AxiomOS-Cardputer/releases/latest)**
-2. Download **`AxiomOS-Cardputer-ADV-vX.Y.Z-merged.bin`**
-3. Flash @ **`0x0`**:
-
-```bash
-pip install esptool
-esptool --chip esp32s3 --port COMx --baud 460800 write_flash 0x0 AxiomOS-Cardputer-ADV-vX.Y.Z-merged.bin
+```powershell
+cd AxiomOS
+py -3.12 -m platformio run -e m5stack-stamps3 -t upload --upload-port COMx
 ```
 
-Full guides (EN/RU/ZH/ES/PT/DE): **[docs/INSTALL.en.md](docs/INSTALL.en.md)**
+## Server
 
-| File | Address | When |
-|------|---------|------|
-| `*-merged.bin` | `0x0` | **Recommended** full flash |
-| `*-app.bin` | `0x10000` | App-only update |
-
----
-
-## Supported devices
-
-| Device | Status |
-|--------|--------|
-| **M5Stack Cardputer ADV** | Full support |
-| Cardputer (classic) | Experimental (nRF/SD pins differ) |
-
-Details: **[docs/DEVICES.md](docs/DEVICES.md)**
-
----
-
-## Controls
-
-| Key | Action |
-|-----|--------|
-| `;` / `.` | Navigate |
-| Enter / BtnA | Select |
-| Del / `` ` `` / `,` | Back |
-| `R` | Rescan / clear |
-| `1`–`4` | Quick sections |
-
----
-
-## Build from source
-
-```bash
-git clone https://github.com/Wiper25/AxiomOS-Cardputer.git
-cd AxiomOS-Cardputer
-pio run -e m5stack-stamps3
-python scripts/merge_firmware.py --version 0.1.0
-pio run -t upload
-```
-
-Requirements: [PlatformIO](https://platformio.org/), Python 3, `esptool`.
-
-CI builds release binaries automatically on version tags (`v*`).
-
----
-
-## Project layout
-
-```
-src/
-  core/          App, config, version
-  drivers/       Display, keyboard, audio
-  modules/       nRF24, Wi‑Fi, MQTT, WS, HTTP, TCP, ping, GPIO, I2C, sensors
-  services/      Settings, storage
-  ui/            LVGL UI manager + fonts
-docs/            Install guides + device matrix
-scripts/         merge_firmware.py
-```
-
----
-
-## Changelog
-
-See **[CHANGELOG.md](CHANGELOG.md)**.
-
----
-
-## Contributing
-
-PRs welcome: new tools, EN UI strings, board profiles, docs, screenshots.
-
-1. Fork → branch → `pio run`
-2. Keep changes focused
-3. Update `CHANGELOG.md` under `[Unreleased]` if user-facing
-
-Bug reports: use GitHub Issues (device model + firmware version + steps).
-
----
-
-## Roadmap (short)
-
-- [ ] English UI / i18n toggle
-- [ ] Web flasher page linked from README
-- [ ] Screenshots / short demo GIF
-- [ ] Classic Cardputer pin profile
-- [ ] OTA from SD / HTTP
-
----
-
-## License
-
-[MIT](LICENSE) — use it, fork it, ship it.
-
-**Hardware** belongs to M5Stack; this project is an independent community firmware.
-
----
-
-<p align="center">
-  <sub>Built for people who actually carry a Cardputer in their pocket.</sub><br/>
-  <a href="https://github.com/Wiper25/AxiomOS-Cardputer/releases/latest"><b>Get the firmware →</b></a>
-  ·
-  <a href="https://github.com/Wiper25/AxiomOS-Cardputer/stargazers"><b>Star on GitHub →</b></a>
-</p>
+Repo `Wiper25/AxiomOS` — `ws://HOST:8090/voice`. On device, `pcm play` = TTS playing.

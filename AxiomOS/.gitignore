@@ -11,8 +11,7 @@ __pycache__/
 C:/pio_build/
 /pio_build/
 build/
-dist/*.bin
-!dist/.gitkeep
+dist/
 
 # OS / IDE
 .DS_Store
@@ -22,15 +21,10 @@ Thumbs.db
 .idea/
 *.user
 
-# Secrets — NEVER commit real keys. Template only:
-#   src/modules/ai/ai_secrets.h.example  (tracked)
-#   src/modules/ai/ai_secrets.h          (local, gitignored)
+# Secrets
 .env
 .env.*
 .env.local
 credentials.json
 *.pem
 *.key
-**/ai_secrets.h
-!**/ai_secrets.h.example
-src/modules/ai/ai_secrets.h
