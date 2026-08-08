@@ -12,7 +12,7 @@ void ApplySpeakerConfig() {
   auto spk_cfg = M5.Speaker.config();
   spk_cfg.sample_rate = kSampleRateHz;
   spk_cfg.stereo = false;
-  if (spk_cfg.magnification < 64) spk_cfg.magnification = 64;
+  spk_cfg.magnification = kSpkMagnification;
   spk_cfg.dma_buf_count = 8;
   spk_cfg.dma_buf_len = 256;
   spk_cfg.task_priority = 4;
@@ -26,6 +26,20 @@ int16_t FramePeak(const int16_t* pcm, size_t samples) {
     if (a > peak) peak = a;
   }
   return peak;
+}
+
+// Soft knee instead of hard clip — less NS4150 hash / "рвёт динамик"
+int16_t SoftLimit(int32_t v) {
+  if (v > kSoftKnee) {
+    const int32_t over = v - kSoftKnee;
+    v = kSoftKnee + over / 4;
+    if (v > kSoftCeil) v = kSoftCeil;
+  } else if (v < -kSoftKnee) {
+    const int32_t over = -kSoftKnee - v;
+    v = -kSoftKnee - over / 4;
+    if (v < -kSoftCeil) v = -kSoftCeil;
+  }
+  return static_cast<int16_t>(v);
 }
 
 }  // namespace
@@ -67,10 +81,10 @@ bool VoiceAudioIo::EnsureSpeaker() {
     M5.Speaker.end();
     vTaskDelay(pdMS_TO_TICKS(20));
     if (!M5.Speaker.begin()) return false;
-    M5.Speaker.setVolume(255);
+    M5.Speaker.setVolume(kSpkVolume);
     spk_ready_ = true;
   } else {
-    M5.Speaker.setVolume(255);
+    M5.Speaker.setVolume(kSpkVolume);
   }
   return true;
 }
@@ -153,14 +167,13 @@ bool VoiceAudioIo::PlayChunk(const int16_t* pcm, size_t samples) {
     return true;
   }
 
-  M5.Speaker.setVolume(255);
+  M5.Speaker.setVolume(kSpkVolume);
   int16_t* slot = play_buf_[play_toggle_ % kPlayBufCount];
   ++play_toggle_;
   for (size_t i = 0; i < samples; ++i) {
-    int32_t v = static_cast<int32_t>(pcm[i]) * 3;
-    if (v > 32767) v = 32767;
-    if (v < -32768) v = -32768;
-    slot[i] = static_cast<int16_t>(v);
+    const int32_t v =
+        (static_cast<int32_t>(pcm[i]) * kPlayGainNum) / kPlayGainDen;
+    slot[i] = SoftLimit(v);
   }
 
   for (int attempt = 0; attempt < 200; ++attempt) {
@@ -176,25 +189,26 @@ bool VoiceAudioIo::PlayChunk(const int16_t* pcm, size_t samples) {
 bool VoiceAudioIo::PlayTestBeep() {
   if (!EnsureSpeaker()) return false;
   M5.Speaker.stop();
-  M5.Speaker.setVolume(255);
-  // Hardware path check (tone uses codec differently than playRaw)
-  M5.Speaker.tone(1000, 60);
-  vTaskDelay(pdMS_TO_TICKS(70));
+  M5.Speaker.setVolume(kSpkVolume);
+  // Quiet path check — was 24k@vol255, shredded tiny ADV speaker
+  M5.Speaker.tone(880, 40);
+  vTaskDelay(pdMS_TO_TICKS(50));
 
   int16_t* slot = play_buf_[0];
   const float w = 2.f * 3.1415926f * 880.f / static_cast<float>(kSampleRateHz);
   for (size_t i = 0; i < kChunkSamples; ++i) {
-    slot[i] = static_cast<int16_t>(24000.f * sinf(w * static_cast<float>(i)));
+    slot[i] = SoftLimit(static_cast<int32_t>(9000.f * sinf(w * static_cast<float>(i))));
   }
   const bool ok =
       M5.Speaker.playRaw(slot, kChunkSamples, kSampleRateHz, false, 1, kTtsChannel, true);
   if (ok) {
     int16_t* slot2 = play_buf_[1];
     for (size_t i = 0; i < kChunkSamples; ++i) {
-      slot2[i] = static_cast<int16_t>(20000.f * sinf(w * static_cast<float>(i + kChunkSamples)));
+      slot2[i] = SoftLimit(
+          static_cast<int32_t>(7500.f * sinf(w * static_cast<float>(i + kChunkSamples))));
     }
     M5.Speaker.playRaw(slot2, kChunkSamples, kSampleRateHz, false, 1, kTtsChannel, false);
-    vTaskDelay(pdMS_TO_TICKS(70));
+    vTaskDelay(pdMS_TO_TICKS(50));
   }
   play_toggle_ = 2;
   return ok;
