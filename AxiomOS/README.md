@@ -1,14 +1,15 @@
 # AxiomOS Cardputer — voice-only
 
-Hold **V** → record → release (+2s) → ASR → Ollama → ElevenLabs → speaker.
+Hold **V** → record → release (+0.7s) → ASR → Ollama → ElevenLabs → speaker.
 
-## Configure
+## WiFi
 
-Edit `src/core/config.h` or `platformio.ini` `build_flags`:
+1. Boot: NVS saved → else `config.h` SSID → else **WiFi setup UI**
+2. Idle: **W** (or **1**) → scan → `;`/`.` select → Enter → password → Enter
+3. Saved to NVS for next boot. `` ` `` = back
 
-- `AXIOM_WIFI_SSID` / `AXIOM_WIFI_PASS`
-- `AXIOM_VOICE_HOST` (VPS IP)
-- `AXIOM_VOICE_PORT` (8090)
+Optional bake-in (`src/core/config.h` / `platformio.ini`):
+`AXIOM_WIFI_SSID`, `AXIOM_WIFI_PASS`, `AXIOM_VOICE_HOST`, `AXIOM_VOICE_PORT`
 
 ## Build / flash
 
@@ -19,4 +20,4 @@ py -3.12 -m platformio run -e m5stack-stamps3 -t upload --upload-port COMx
 
 ## Server
 
-Repo `Wiper25/AxiomOS` — `ws://HOST:8090/voice`. On device, `pcm play` = TTS playing.
+`Wiper25/AxiomOS` — `ws://HOST:8090/voice`. Status `pcm play` = TTS playing.
