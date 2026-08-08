@@ -17,6 +17,8 @@ class VoiceAudioIo {
   bool MicRunning() const { return mic_running_; }
 
   bool EnsureSpeaker();
+  // Full Mic+Speaker teardown (call on Idle after TTS so next Listen works)
+  void ReleaseBus();
 
   bool ReadChunk(int16_t* dst, size_t samples = kChunkSamples);
   bool PlayChunk(const int16_t* pcm, size_t samples);

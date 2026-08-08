@@ -147,8 +147,8 @@ void VoiceAssistant::EnterIdle() {
   ptt_held_ = false;
   ptt_release_ms_ = 0;
   if (!force_listen_) ptt_session_ = false;
-  audio_io_.MicStop();
-  audio_io_.StopPlayback();
+  // Must end Speaker too — otherwise 2nd Listen gets silent mic (peak~30)
+  audio_io_.ReleaseBus();
   if (state_ != State::Idle || ws_.IsConnected()) {
     ws_.Disconnect();
   }
@@ -166,6 +166,12 @@ void VoiceAssistant::EnterListen(bool from_vad) {
   }
   FlushTxQueue();
   vad_.Reset();
+  // Beep BEFORE mic — never tone() while Mic owns ES8311
+  if (audio_) {
+    audio_->SetExclusive(false);
+    audio_->Play(drivers::SoundId::Success);
+    vTaskDelay(pdMS_TO_TICKS(100));
+  }
   if (!ws_.SendTxt("{\"event\":\"listening\"}")) {
     SetStatus("ws send fail");
     if (audio_) audio_->Play(drivers::SoundId::Error);
@@ -179,11 +185,6 @@ void VoiceAssistant::EnterListen(bool from_vad) {
     EnterIdle();
     return;
   }
-  if (audio_) {
-    audio_->SetExclusive(false);
-    audio_->Play(drivers::SoundId::Success);
-  }
-  vTaskDelay(pdMS_TO_TICKS(80));
   mic_run_ = true;
   spk_run_ = false;
   listen_started_ms_ = millis();

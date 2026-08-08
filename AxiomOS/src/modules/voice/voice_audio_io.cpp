@@ -77,22 +77,60 @@ bool VoiceAudioIo::EnsureSpeaker() {
 
 bool VoiceAudioIo::MicStart() {
   if (!began_ && !Begin()) return false;
-  if (mic_running_) return true;
+
+  // Always tear down Speaker fully — after TTS ES8311 ADC otherwise stays dead
+  // (symptom: uplink peak≈30, level=8, empty ASR on 2nd utterance).
   StopPlayback();
-  if (spk_ready_) {
+  if (spk_ready_ || M5.Speaker.isEnabled()) {
+    M5.Speaker.stop();
     M5.Speaker.end();
     spk_ready_ = false;
-    vTaskDelay(pdMS_TO_TICKS(20));
   }
-  if (!M5.Mic.begin()) return false;
-  mic_running_ = true;
-  return true;
+  if (mic_running_) {
+    M5.Mic.end();
+    mic_running_ = false;
+  }
+  vTaskDelay(pdMS_TO_TICKS(60));
+
+  auto mic_cfg = M5.Mic.config();
+  mic_cfg.sample_rate = kSampleRateHz;
+  mic_cfg.magnification = 16;
+  M5.Mic.config(mic_cfg);
+
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    if (M5.Mic.begin()) {
+      mic_running_ = true;
+      // Discard first frames — codec warmup garbage / zeros
+      int16_t warm[kChunkSamples];
+      for (int w = 0; w < 4; ++w) {
+        (void)ReadChunk(warm, kChunkSamples);
+      }
+      return true;
+    }
+    M5.Mic.end();
+    vTaskDelay(pdMS_TO_TICKS(40));
+  }
+  return false;
 }
 
 void VoiceAudioIo::MicStop() {
   if (!mic_running_) return;
   M5.Mic.end();
   mic_running_ = false;
+}
+
+void VoiceAudioIo::ReleaseBus() {
+  StopPlayback();
+  if (mic_running_) {
+    M5.Mic.end();
+    mic_running_ = false;
+  }
+  if (spk_ready_ || M5.Speaker.isEnabled()) {
+    M5.Speaker.stop();
+    M5.Speaker.end();
+    spk_ready_ = false;
+  }
+  vTaskDelay(pdMS_TO_TICKS(30));
 }
 
 bool VoiceAudioIo::ReadChunk(int16_t* dst, size_t samples) {
