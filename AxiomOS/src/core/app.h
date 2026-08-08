@@ -7,9 +7,11 @@
 
 namespace axiom {
 
+// On-device WiFi UI (scan → optional SSID type → password → connect → NVS)
 enum class UiMode : uint8_t {
   Voice = 0,
   WifiScan,
+  WifiSsid,       // manual SSID entry
   WifiPass,
   WifiConnecting
 };
@@ -25,8 +27,9 @@ class App {
   void EnterWifiSetup();
   void ExitWifiSetup();
   void HandleWifiAction(drivers::InputAction action);
-  bool WaitWifiConnected(uint32_t timeout_ms);
-  static bool HasCompileWifi();
+  void StartJoinSelected();
+  void StartJoinManual();
+  uint8_t WifiListRows() const;  // networks + 1 "type SSID" row
 
   drivers::KeyboardDriver keyboard_;
   drivers::AudioDriver audio_;
@@ -38,10 +41,11 @@ class App {
   char join_ssid_[33] = {0};
   char pass_buf_[65] = {0};
   uint8_t pass_len_ = 0;
-  uint32_t wifi_ui_ms_ = 0;
+  char ssid_buf_[33] = {0};
+  uint8_t ssid_len_ = 0;
 
   uint32_t last_status_ms_ = 0;
-  char last_status_key_[96] = {0};
+  char last_status_key_[128] = {0};
 };
 
 }  // namespace axiom
