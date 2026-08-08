@@ -83,9 +83,10 @@ void VoiceAssistant::PttDown() {
     SetStatus("listening");
     return;
   }
+  // Do NOT cancel Thinking/Speak — that was "перестал отвечать":
+  // 2nd V during ASR reconnects WS → server aborts TTS.
   if (state_ == State::Thinking || state_ == State::Speak) {
-    cancel_req_ = true;
-    force_listen_ = true;
+    SetStatus("busy — wait");
     return;
   }
   force_listen_ = true;
@@ -166,22 +167,32 @@ void VoiceAssistant::EnterListen(bool from_vad) {
   }
   FlushTxQueue();
   vad_.Reset();
-  // Beep BEFORE mic — never tone() while Mic owns ES8311
+  // Beep BEFORE mic — finish ALL tones + Stop() before MicStart.
+  // App calls audio_.Tick() every loop; leftover Success note → Speaker.tone()
+  // after Mic.begin → ADC dies (level=8 forever, only frame#1 has signal).
   if (audio_) {
     audio_->SetExclusive(false);
     audio_->Play(drivers::SoundId::Success);
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(130));  // Success = 45+60ms
+    audio_->Stop();
+    audio_->SetExclusive(true);  // block Tick→tone before MicStart
   }
   if (!ws_.SendTxt("{\"event\":\"listening\"}")) {
     SetStatus("ws send fail");
-    if (audio_) audio_->Play(drivers::SoundId::Error);
+    if (audio_) {
+      audio_->SetExclusive(false);
+      audio_->Play(drivers::SoundId::Error);
+    }
     EnterIdle();
     return;
   }
   ws_.Tick();
   if (!audio_io_.MicStart()) {
     SetStatus("mic fail");
-    if (audio_) audio_->Play(drivers::SoundId::Error);
+    if (audio_) {
+      audio_->SetExclusive(false);
+      audio_->Play(drivers::SoundId::Error);
+    }
     EnterIdle();
     return;
   }

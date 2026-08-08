@@ -23,8 +23,11 @@ class AudioDriver {
   void Tick();
   void Play(SoundId sound);
   void SetVolume(uint8_t v);
+  // Abort multi-note sequence — MUST call before MicStart (Tick→tone kills ADC).
+  void Stop();
   // When true, UI tones are suppressed (voice owns speaker).
   void SetExclusive(bool v) { exclusive_ = v; }
+  bool IsExclusive() const { return exclusive_; }
 
  private:
   void StartSequence(const Note* notes, uint8_t count);

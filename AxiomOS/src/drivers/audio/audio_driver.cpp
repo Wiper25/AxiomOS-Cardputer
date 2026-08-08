@@ -19,6 +19,11 @@ bool AudioDriver::Begin() {
 }
 
 void AudioDriver::Tick() {
+  // Never touch Speaker while mic owns ES8311 — symptom: uplink level=8 after frame#1
+  if (exclusive_) {
+    if (active_notes_ != nullptr) Stop();
+    return;
+  }
   if (active_notes_ == nullptr || active_index_ >= active_count_) {
     return;
   }
@@ -36,6 +41,14 @@ void AudioDriver::Tick() {
   const Note& n = active_notes_[active_index_];
   M5.Speaker.tone(n.freq, n.dur_ms);
   note_end_at_ms_ = millis() + n.dur_ms;
+}
+
+void AudioDriver::Stop() {
+  active_notes_ = nullptr;
+  active_count_ = 0;
+  active_index_ = 0;
+  note_end_at_ms_ = 0;
+  M5.Speaker.stop();
 }
 
 void AudioDriver::Play(SoundId sound) {
